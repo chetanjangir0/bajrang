@@ -1,0 +1,10 @@
+[package]
+name = "bajrang-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nalgebra = "0.34"
+thiserror = "2"
+
+model = { path = "../model" }
