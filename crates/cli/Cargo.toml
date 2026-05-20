@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-core = { path = "../bajrang-core" }
+bajrang-core = { path = "../bajrang-core" }
 model = { path = "../model" }
 io = { path = "../io" }
 
