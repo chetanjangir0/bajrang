@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nalgebra = "0.34"
+nalgebra = { version = "0.34", features = ["serde-serialize"] }
 serde = { version = "1", features = ["derive"] }
+thiserror = "2"
