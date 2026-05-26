@@ -9,7 +9,7 @@ use crate::{
 /// A 2D truss element connecting two nodes.
 ///
 /// Resists axial load only — no bending, no moment transfer.
-/// Has 4 active DOFs: [u_ix, u_iy, u_jx, u_jy].
+/// Has 4 active DOFs(for global element stiffness): [u_ix, u_iy, u_jx, u_jy].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Truss2D {
     pub id: usize,
