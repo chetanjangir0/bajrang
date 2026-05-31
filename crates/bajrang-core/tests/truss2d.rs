@@ -1,26 +1,18 @@
 // Integration test: full pipeline from model definition → solve → results.
 // Tests the assembler, boundary condition application, and solver together.
 
-use model::{
-    boundary::Support,
-    dof::Dof,
-    elements::truss2d::Truss2D,
-    load::NodalLoad,
-    material::Material,
-    node::Node,
-    section::Section,
-};
 use bajrang_core::analysis::linear_static;
+use model::{
+    boundary::Support, dof::Dof, elements::truss2d::Truss2D, load::NodalLoad, material::Material,
+    node::Node, section::Section,
+};
 
 #[test]
 fn single_horizontal_bar_axial_load() {
     // Single horizontal bar: Node 0 at origin, Node 1 at (1m, 0)
-    let nodes = vec![
-        Node::new(0, 0.0, 0.0),
-        Node::new(1, 1.0, 0.0),
-    ];
+    let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 1.0, 0.0)];
 
-    let mat = Material::steel();    // E = 200 GPa
+    let mat = Material::steel(); // E = 200 GPa
     let sec = Section::truss(0.01); // A = 0.01 m²
 
     let elements = vec![Truss2D::new(0, 0, 1, mat, sec)];
@@ -30,10 +22,10 @@ fn single_horizontal_bar_axial_load() {
     supports.extend(Support::roller_y(1));
 
     // 10 kN in +X direction at node 1
-    let loads = vec![NodalLoad::new(1, Dof::Ux, fx:10_000.0)];
+    let loads = vec![NodalLoad::new(1, Dof::Ux, 10_000.0)];
 
-    let results = linear_static::run(&nodes, &elements, &supports, &loads)
-        .expect("Analysis should succeed");
+    let results =
+        linear_static::run(&nodes, &elements, &supports, &loads).expect("Analysis should succeed");
 
     // Expected: u_1x = F / (AE/L) = 10_000 / (200e9 * 0.01 / 1.0) = 5e-6 m
     let u_1x = results.displacements[1 * 3 + Dof::Ux as usize];

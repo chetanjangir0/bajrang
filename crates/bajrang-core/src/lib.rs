@@ -1,5 +1,3 @@
-pub mod elements;
+pub mod analysis;
 pub mod assembler;
 pub mod solver;
-pub mod analysis;
-
