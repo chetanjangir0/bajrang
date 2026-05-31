@@ -114,10 +114,15 @@ impl Element for Beam2D {
         nodes: &[Node],
         distributed_loads: &[DistributedLoad],
     ) -> DVector<f64> {
-        let l = self.geometry(&nodes[self.node_i], &nodes[self.node_j]).length;
+        let l = self
+            .geometry(&nodes[self.node_i], &nodes[self.node_j])
+            .length;
         let mut f = DVector::zeros(4);
 
-        for load in distributed_loads.iter().filter(|load| load.element_id == self.id) {
+        for load in distributed_loads
+            .iter()
+            .filter(|load| load.element_id == self.id)
+        {
             match load.direction {
                 DistributedLoadDirection::LocalY => {
                     #[rustfmt::skip]

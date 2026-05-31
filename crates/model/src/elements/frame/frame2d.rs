@@ -147,11 +147,16 @@ impl Element for Frame2D {
         nodes: &[Node],
         distributed_loads: &[DistributedLoad],
     ) -> DVector<f64> {
-        let l = self.geometry(&nodes[self.node_i], &nodes[self.node_j]).length;
+        let l = self
+            .geometry(&nodes[self.node_i], &nodes[self.node_j])
+            .length;
         let t = self.transformation_matrix(nodes);
         let mut f_local = Vector6::zeros();
 
-        for load in distributed_loads.iter().filter(|load| load.element_id == self.id) {
+        for load in distributed_loads
+            .iter()
+            .filter(|load| load.element_id == self.id)
+        {
             match load.direction {
                 DistributedLoadDirection::LocalY => {
                     #[rustfmt::skip]

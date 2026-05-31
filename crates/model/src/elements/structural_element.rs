@@ -2,7 +2,9 @@ use nalgebra::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    elements::{beam::beam2d::Beam2D, frame::frame2d::Frame2D, traits::Element, truss::truss2d::Truss2D},
+    elements::{
+        beam::beam2d::Beam2D, frame::frame2d::Frame2D, traits::Element, truss::truss2d::Truss2D,
+    },
     load::DistributedLoad,
     node::Node,
 };

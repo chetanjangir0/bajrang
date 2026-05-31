@@ -1,7 +1,7 @@
 use model::{
     boundary::Support,
     elements::{
-        beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D, StructuralElement,
+        StructuralElement, beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D,
     },
     load::{DistributedLoad, NodalLoad},
     node::Node,

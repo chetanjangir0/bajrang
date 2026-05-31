@@ -2,7 +2,7 @@ use bajrang_core::analysis::linear_static::{self, ElementResult};
 use model::{
     boundary::Support,
     dof::Dof,
-    elements::{beam2d::Beam2D, truss2d::Truss2D, StructuralElement},
+    elements::{StructuralElement, beam2d::Beam2D, truss2d::Truss2D},
     load::NodalLoad,
     material::Material,
     node::Node,
@@ -24,13 +24,7 @@ fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
 fn mixed_beam_and_truss_share_one_solution() {
     let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 2.0, 0.0)];
 
-    let truss = Truss2D::new(
-        0,
-        0,
-        1,
-        Material::new(200.0e9, 0.3),
-        Section::truss(0.01),
-    );
+    let truss = Truss2D::new(0, 0, 1, Material::new(200.0e9, 0.3), Section::truss(0.01));
     let beam = Beam2D::new(
         1,
         0,
@@ -57,9 +51,24 @@ fn mixed_beam_and_truss_share_one_solution() {
     let results = linear_static::run_mixed(&nodes, &elements, &supports, &nodal_loads, &[])
         .expect("Mixed analysis should succeed");
 
-    assert_close(displacement(&results, 1, Dof::Ux), 1.0e-5, 1e-12, "Node 1 Ux");
-    assert_close(displacement(&results, 1, Dof::Uy), -1.0 / 600.0, 1e-12, "Node 1 Uy");
-    assert_close(displacement(&results, 1, Dof::Rz), -0.00125, 1e-12, "Node 1 Rz");
+    assert_close(
+        displacement(&results, 1, Dof::Ux),
+        1.0e-5,
+        1e-12,
+        "Node 1 Ux",
+    );
+    assert_close(
+        displacement(&results, 1, Dof::Uy),
+        -1.0 / 600.0,
+        1e-12,
+        "Node 1 Uy",
+    );
+    assert_close(
+        displacement(&results, 1, Dof::Rz),
+        -0.00125,
+        1e-12,
+        "Node 1 Rz",
+    );
 
     match &results.member_results[0] {
         ElementResult::Truss2D { axial_force } => {

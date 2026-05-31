@@ -33,8 +33,18 @@ fn cantilever_tip_load_matches_euler_bernoulli_solution() {
     let results = linear_static::run_beam2d(&nodes, &elements, &supports, &loads, &[])
         .expect("Beam analysis should succeed");
 
-    assert_close(displacement(&results, 1, Dof::Uy), -1.0 / 600.0, 1e-12, "Tip deflection");
-    assert_close(displacement(&results, 1, Dof::Rz), -0.00125, 1e-12, "Tip rotation");
+    assert_close(
+        displacement(&results, 1, Dof::Uy),
+        -1.0 / 600.0,
+        1e-12,
+        "Tip deflection",
+    );
+    assert_close(
+        displacement(&results, 1, Dof::Rz),
+        -0.00125,
+        1e-12,
+        "Tip rotation",
+    );
 
     let end_forces = results.member_end_forces[0];
     assert_close(end_forces[0], 1_000.0, 1e-6, "Node i shear");
@@ -54,16 +64,20 @@ fn simply_supported_uniform_load_affects_rotations() {
     let loads = vec![];
     let distributed_loads = vec![DistributedLoad::local_y(0, -1_000.0)];
 
-    let results = linear_static::run_beam2d(
-        &nodes,
-        &elements,
-        &supports,
-        &loads,
-        &distributed_loads,
-    )
-    .expect("Beam analysis with distributed load should succeed");
+    let results =
+        linear_static::run_beam2d(&nodes, &elements, &supports, &loads, &distributed_loads)
+            .expect("Beam analysis with distributed load should succeed");
 
-    assert_close(displacement(&results, 0, Dof::Rz), -2.0833333333333334e-4, 1e-12, "Left rotation");
-    assert_close(displacement(&results, 1, Dof::Rz), 2.0833333333333334e-4, 1e-12, "Right rotation");
-
+    assert_close(
+        displacement(&results, 0, Dof::Rz),
+        -2.0833333333333334e-4,
+        1e-12,
+        "Left rotation",
+    );
+    assert_close(
+        displacement(&results, 1, Dof::Rz),
+        2.0833333333333334e-4,
+        1e-12,
+        "Right rotation",
+    );
 }

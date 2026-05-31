@@ -38,7 +38,12 @@ fn vertical_cantilever_horizontal_tip_load_uses_global_transformation() {
         1e-12,
         "Tip horizontal displacement",
     );
-    assert_close(displacement(&results, 1, Dof::Uy), 0.0, 1e-12, "Tip vertical displacement");
+    assert_close(
+        displacement(&results, 1, Dof::Uy),
+        0.0,
+        1e-12,
+        "Tip vertical displacement",
+    );
     assert_close(
         displacement(&results, 1, Dof::Rz),
         -0.006696428571428572,
