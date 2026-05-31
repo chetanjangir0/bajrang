@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// The global DOF index for node `i` (in the global stiffness matrix) with DOF `d` is:
 ///   global_index = i * DOFS_PER_NODE + d as usize

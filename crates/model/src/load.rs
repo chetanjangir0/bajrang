@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::dof::Dof;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NodalLoad {
@@ -11,6 +11,10 @@ pub struct NodalLoad {
 
 impl NodalLoad {
     pub fn new(node_id: usize, dof: Dof, magnitude: f64) -> Self {
-        Self { node_id, dof, magnitude }
+        Self {
+            node_id,
+            dof,
+            magnitude,
+        }
     }
 }

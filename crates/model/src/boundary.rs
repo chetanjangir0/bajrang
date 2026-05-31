@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::dof::Dof;
+use serde::{Deserialize, Serialize};
 
 /// support constraint: pins a specific DOF of a specific node to zero.
 ///
