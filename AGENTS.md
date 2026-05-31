@@ -88,6 +88,19 @@ The architecture should remain extensible toward:
 * CAD/BIM interoperability
 
 
+### IMPORTANT NOTES:
+
+the stifffness matrix defined should be humanly readable eg
+#[rustfmt::skip]
+-        let k = DMatrix::from_row_slice(4, 4, &[
+-             c*c,  c*s, -c*c, -c*s,
+-             c*s,  s*s, -c*s, -s*s,
+-            -c*c, -c*s,  c*c,  c*s,
+-            -c*s, -s*s,  c*s,  s*s,
+-        ]);
+(try to preserve the #[rustfmt::skip]) for mathmatical expressions
+
+
 # folder and file structure the project should follow (
 whenever the need for extension)
 
