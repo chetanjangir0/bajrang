@@ -1,7 +1,9 @@
 use model::{
     boundary::Support,
-    elements::{beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D},
-    load::NodalLoad,
+    elements::{
+        beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D, StructuralElement,
+    },
+    load::{DistributedLoad, NodalLoad},
     node::Node,
 };
 use thiserror::Error;
@@ -41,13 +43,27 @@ pub struct Frame2DResults {
     pub member_end_forces: Vec<[f64; 6]>,
 }
 
+/// Results from a mixed 2D analysis.
+#[derive(Debug)]
+pub struct Mixed2DResults {
+    pub displacements: Vec<f64>,
+    pub member_results: Vec<ElementResult>,
+}
+
+#[derive(Debug)]
+pub enum ElementResult {
+    Truss2D { axial_force: f64 },
+    Beam2D { end_forces: [f64; 4] },
+    Frame2D { end_forces: [f64; 6] },
+}
+
 pub fn run(
     nodes: &[Node],
     elements: &[Truss2D],
     supports: &[Support],
     loads: &[NodalLoad],
 ) -> Result<LinearStaticResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads)?;
+    let displacements = solve_displacements(nodes, elements, supports, loads, &[])?;
 
     let member_forces = elements
         .iter()
@@ -65,8 +81,9 @@ pub fn run_beam2d(
     elements: &[Beam2D],
     supports: &[Support],
     loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
 ) -> Result<Beam2DResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads)?;
+    let displacements = solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
     let member_end_forces = elements
         .iter()
@@ -87,8 +104,9 @@ pub fn run_frame2d(
     elements: &[Frame2D],
     supports: &[Support],
     loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
 ) -> Result<Frame2DResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads)?;
+    let displacements = solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
     let member_end_forces = elements
         .iter()
@@ -106,6 +124,45 @@ pub fn run_frame2d(
     })
 }
 
+pub fn run_mixed(
+    nodes: &[Node],
+    elements: &[StructuralElement],
+    supports: &[Support],
+    nodal_loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
+) -> Result<Mixed2DResults, AnalysisError> {
+    let displacements =
+        solve_displacements(nodes, elements, supports, nodal_loads, distributed_loads)?;
+
+    let member_results = elements
+        .iter()
+        .map(|element| match element {
+            StructuralElement::Truss2D(truss) => ElementResult::Truss2D {
+                axial_force: truss.axial_force(nodes, &displacements),
+            },
+            StructuralElement::Beam2D(beam) => {
+                let forces = beam.end_forces(nodes, &displacements);
+                ElementResult::Beam2D {
+                    end_forces: [forces[0], forces[1], forces[2], forces[3]],
+                }
+            }
+            StructuralElement::Frame2D(frame) => {
+                let forces = frame.end_forces(nodes, &displacements);
+                ElementResult::Frame2D {
+                    end_forces: [
+                        forces[0], forces[1], forces[2], forces[3], forces[4], forces[5],
+                    ],
+                }
+            }
+        })
+        .collect();
+
+    Ok(Mixed2DResults {
+        displacements,
+        member_results,
+    })
+}
+
 /// Solve the global displacement field for any element type implementing
 /// the shared assembly contract.
 pub fn solve_displacements<E: Element>(
@@ -113,10 +170,11 @@ pub fn solve_displacements<E: Element>(
     elements: &[E],
     supports: &[Support],
     loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
 ) -> Result<Vec<f64>, AnalysisError> {
     // 1. Assemble global system
     let mut k = assemble_global_stiffness(nodes, elements);
-    let mut f = assemble_load_vector(nodes, elements, loads);
+    let mut f = assemble_load_vector(nodes, elements, loads, distributed_loads);
 
     // 2. Apply user supports plus any inactive global DOFs that no element uses.
     let mut constrained_dofs = constrained_dofs_from_supports(supports);

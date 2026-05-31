@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     dof::{Dof, global_dof_index},
     elements::traits::Element,
+    load::{DistributedLoad, DistributedLoadDirection},
     material::Material,
     node::Node,
     section::Section,
@@ -118,6 +119,10 @@ impl Frame2D {
 }
 
 impl Element for Frame2D {
+    fn id(&self) -> usize {
+        self.id
+    }
+
     fn stiffness_matrix(&self, nodes: &[Node]) -> DMatrix<f64> {
         let k_local = self.local_stiffness_matrix(nodes);
         let t = self.transformation_matrix(nodes);
@@ -137,8 +142,35 @@ impl Element for Frame2D {
         ]
     }
 
-    fn equivalent_load_vector(&self, _nodes: &[Node]) -> DVector<f64> {
-        DVector::zeros(6)
+    fn equivalent_load_vector(
+        &self,
+        nodes: &[Node],
+        distributed_loads: &[DistributedLoad],
+    ) -> DVector<f64> {
+        let l = self.geometry(&nodes[self.node_i], &nodes[self.node_j]).length;
+        let t = self.transformation_matrix(nodes);
+        let mut f_local = Vector6::zeros();
+
+        for load in distributed_loads.iter().filter(|load| load.element_id == self.id) {
+            match load.direction {
+                DistributedLoadDirection::LocalY => {
+                    #[rustfmt::skip]
+                    let fe = Vector6::from_row_slice(&[
+                        0.0,
+                        load.magnitude * l / 2.0,
+                        load.magnitude * l * l / 12.0,
+                        0.0,
+                        load.magnitude * l / 2.0,
+                        -load.magnitude * l * l / 12.0,
+                    ]);
+
+                    f_local += fe;
+                }
+            }
+        }
+
+        let f_global = t.transpose() * f_local;
+        DVector::from_row_slice(f_global.as_slice())
     }
 }
 

@@ -1,7 +1,7 @@
 use model::{
     dof::{DOFS_PER_NODE, global_dof_index},
     elements::traits::Element,
-    load::NodalLoad,
+    load::{DistributedLoad, NodalLoad},
     node::Node,
 };
 
@@ -10,6 +10,7 @@ pub fn assemble_load_vector<E: Element>(
     nodes: &[Node],
     elements: &[E],
     loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
 ) -> Vec<f64> {
     let ndof = nodes.len() * DOFS_PER_NODE;
     let mut f = vec![0.0_f64; ndof];
@@ -20,7 +21,7 @@ pub fn assemble_load_vector<E: Element>(
     }
 
     for element in elements {
-        let fe = element.equivalent_load_vector(nodes);
+        let fe = element.equivalent_load_vector(nodes, distributed_loads);
         let dofs = element.dof_indices();
 
         assert_eq!(

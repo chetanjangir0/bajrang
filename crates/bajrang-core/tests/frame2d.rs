@@ -29,7 +29,7 @@ fn vertical_cantilever_horizontal_tip_load_uses_global_transformation() {
     ];
     let loads = vec![NodalLoad::new(1, Dof::Ux, 5_000.0)];
 
-    let results = linear_static::run_frame2d(&nodes, &elements, &supports, &loads)
+    let results = linear_static::run_frame2d(&nodes, &elements, &supports, &loads, &[])
         .expect("Frame analysis should succeed");
 
     assert_close(

@@ -18,3 +18,27 @@ impl NodalLoad {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum DistributedLoadDirection {
+    /// Acts along the element's local +Y axis.
+    LocalY,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DistributedLoad {
+    pub element_id: usize,
+    /// Force intensity per unit length.
+    pub magnitude: f64,
+    pub direction: DistributedLoadDirection,
+}
+
+impl DistributedLoad {
+    pub fn local_y(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::LocalY,
+        }
+    }
+}

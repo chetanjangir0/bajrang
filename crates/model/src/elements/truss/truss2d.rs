@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     dof::{Dof, global_dof_index},
     elements::traits::Element,
+    load::DistributedLoad,
     material::Material,
     node::Node,
     section::Section,
@@ -75,6 +76,10 @@ impl Truss2D {
 }
 
 impl Element for Truss2D {
+    fn id(&self) -> usize {
+        self.id
+    }
+
     fn stiffness_matrix(&self, nodes: &[Node]) -> DMatrix<f64> {
         let ni = &nodes[self.node_i];
         let nj = &nodes[self.node_j];
@@ -104,7 +109,11 @@ impl Element for Truss2D {
         ]
     }
 
-    fn equivalent_load_vector(&self, _nodes: &[Node]) -> DVector<f64> {
+    fn equivalent_load_vector(
+        &self,
+        _nodes: &[Node],
+        _distributed_loads: &[DistributedLoad],
+    ) -> DVector<f64> {
         DVector::zeros(4)
     }
 }
