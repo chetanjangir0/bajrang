@@ -1,6 +1,6 @@
 use model::{
     boundary::Support,
-    elements::{traits::Element, truss2d::Truss2D},
+    elements::{beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D},
     load::NodalLoad,
     node::Node,
 };
@@ -23,13 +23,24 @@ pub enum AnalysisError {
 /// Results from a linear static analysis.
 #[derive(Debug)]
 pub struct LinearStaticResults {
-    /// Global displacement vector (indexed by global DOF)
     pub displacements: Vec<f64>,
-    /// Axial force in each truss element (same order as input elements)
     pub member_forces: Vec<f64>,
 }
 
-/// Run a linear static analysis on a 2D truss model.
+/// Results from a 2D beam analysis.
+#[derive(Debug)]
+pub struct Beam2DResults {
+    pub displacements: Vec<f64>,
+    pub member_end_forces: Vec<[f64; 4]>,
+}
+
+/// Results from a 2D frame analysis.
+#[derive(Debug)]
+pub struct Frame2DResults {
+    pub displacements: Vec<f64>,
+    pub member_end_forces: Vec<[f64; 6]>,
+}
+
 pub fn run(
     nodes: &[Node],
     elements: &[Truss2D],
@@ -46,6 +57,52 @@ pub fn run(
     Ok(LinearStaticResults {
         displacements,
         member_forces,
+    })
+}
+
+pub fn run_beam2d(
+    nodes: &[Node],
+    elements: &[Beam2D],
+    supports: &[Support],
+    loads: &[NodalLoad],
+) -> Result<Beam2DResults, AnalysisError> {
+    let displacements = solve_displacements(nodes, elements, supports, loads)?;
+
+    let member_end_forces = elements
+        .iter()
+        .map(|element| {
+            let forces = element.end_forces(nodes, &displacements);
+            [forces[0], forces[1], forces[2], forces[3]]
+        })
+        .collect();
+
+    Ok(Beam2DResults {
+        displacements,
+        member_end_forces,
+    })
+}
+
+pub fn run_frame2d(
+    nodes: &[Node],
+    elements: &[Frame2D],
+    supports: &[Support],
+    loads: &[NodalLoad],
+) -> Result<Frame2DResults, AnalysisError> {
+    let displacements = solve_displacements(nodes, elements, supports, loads)?;
+
+    let member_end_forces = elements
+        .iter()
+        .map(|element| {
+            let forces = element.end_forces(nodes, &displacements);
+            [
+                forces[0], forces[1], forces[2], forces[3], forces[4], forces[5],
+            ]
+        })
+        .collect();
+
+    Ok(Frame2DResults {
+        displacements,
+        member_end_forces,
     })
 }
 
