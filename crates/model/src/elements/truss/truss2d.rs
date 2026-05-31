@@ -84,28 +84,15 @@ impl Element for Truss2D {
         let c = geom.cos;
         let s = geom.sin;
 
-        DMatrix::from_row_slice(
-            4,
-            4,
-            &[
-                ae_over_l * c * c,
-                ae_over_l * c * s,
-                -ae_over_l * c * c,
-                -ae_over_l * c * s,
-                ae_over_l * c * s,
-                ae_over_l * s * s,
-                -ae_over_l * c * s,
-                -ae_over_l * s * s,
-                -ae_over_l * c * c,
-                -ae_over_l * c * s,
-                ae_over_l * c * c,
-                ae_over_l * c * s,
-                -ae_over_l * c * s,
-                -ae_over_l * s * s,
-                ae_over_l * c * s,
-                ae_over_l * s * s,
-            ],
-        )
+        #[rustfmt::skip]
+        let k = DMatrix::from_row_slice(4, 4, &[
+             c*c,  c*s, -c*c, -c*s,
+             c*s,  s*s, -c*s, -s*s,
+            -c*c, -c*s,  c*c,  c*s,
+            -c*s, -s*s,  c*s,  s*s,
+        ]);
+
+        ae_over_l * k
     }
 
     fn dof_indices(&self) -> Vec<usize> {
