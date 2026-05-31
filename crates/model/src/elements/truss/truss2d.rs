@@ -125,3 +125,29 @@ pub struct Truss2DGeometry {
     pub cos: f64,
     pub sin: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{material::Material, node::Node, section::Section};
+
+    fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "{label}: expected {expected:.12e}, got {actual:.12e}"
+        );
+    }
+
+    #[test]
+    fn geometry_for_three_four_five_member_is_exact() {
+        let truss = Truss2D::new(0, 0, 1, Material::new(200.0e9, 0.3), Section::truss(0.01));
+        let ni = Node::new(0, 0.0, 0.0);
+        let nj = Node::new(1, 3.0, 4.0);
+
+        let geom = truss.geometry(&ni, &nj);
+
+        assert_close(geom.length, 5.0, 1e-12, "Length");
+        assert_close(geom.cos, 0.6, 1e-12, "Cosine");
+        assert_close(geom.sin, 0.8, 1e-12, "Sine");
+    }
+}

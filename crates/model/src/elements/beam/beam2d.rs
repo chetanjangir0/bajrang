@@ -146,3 +146,52 @@ impl Element for Beam2D {
 pub struct Beam2DGeometry {
     pub length: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{load::DistributedLoad, material::Material, node::Node, section::Section};
+
+    fn make_beam() -> (Vec<Node>, Beam2D) {
+        let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 3.0, 0.0)];
+        let beam = Beam2D::new(
+            7,
+            0,
+            1,
+            Material::new(200.0e9, 0.3),
+            Section::new(0.02, 8.0e-6),
+        );
+
+        (nodes, beam)
+    }
+
+    fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "{label}: expected {expected:.12e}, got {actual:.12e}"
+        );
+    }
+
+    #[test]
+    fn uniform_local_y_load_maps_to_consistent_nodal_vector() {
+        let (nodes, beam) = make_beam();
+        let loads = vec![DistributedLoad::local_y(7, -2.0)];
+
+        let fe = beam.equivalent_load_vector(&nodes, &loads);
+
+        assert_close(fe[0], -3.0, 1e-12, "Node i shear");
+        assert_close(fe[1], -1.5, 1e-12, "Node i moment");
+        assert_close(fe[2], -3.0, 1e-12, "Node j shear");
+        assert_close(fe[3], 1.5, 1e-12, "Node j moment");
+    }
+
+    #[test]
+    fn ignores_distributed_loads_for_other_elements() {
+        let (nodes, beam) = make_beam();
+        let loads = vec![DistributedLoad::local_y(99, -2.0)];
+
+        let fe = beam.equivalent_load_vector(&nodes, &loads);
+
+        assert_eq!(fe, DVector::zeros(4));
+    }
+}

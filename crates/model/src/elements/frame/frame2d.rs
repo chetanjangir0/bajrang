@@ -185,3 +185,84 @@ pub struct Frame2DGeometry {
     pub cos: f64,
     pub sin: f64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{load::DistributedLoad, material::Material, node::Node, section::Section};
+
+    fn make_frame() -> (Vec<Node>, Frame2D) {
+        let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 3.0, 4.0)];
+        let frame = Frame2D::new(
+            11,
+            0,
+            1,
+            Material::new(210.0e9, 0.3),
+            Section::new(0.02, 1.6e-5),
+        );
+
+        (nodes, frame)
+    }
+
+    fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
+        assert!(
+            (actual - expected).abs() <= tol,
+            "{label}: expected {expected:.12e}, got {actual:.12e}"
+        );
+    }
+
+    #[test]
+    fn transformation_matrix_is_orthonormal() {
+        let (nodes, frame) = make_frame();
+        let t = frame.transformation_matrix(&nodes);
+        let identity = t * t.transpose();
+
+        for row in 0..6 {
+            for col in 0..6 {
+                let expected = if row == col { 1.0 } else { 0.0 };
+                assert_close(identity[(row, col)], expected, 1e-12, "Orthogonality");
+            }
+        }
+    }
+
+    #[test]
+    fn horizontal_frame_global_stiffness_matches_local_stiffness() {
+        let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 2.0, 0.0)];
+        let frame = Frame2D::new(
+            5,
+            0,
+            1,
+            Material::new(210.0e9, 0.3),
+            Section::new(0.02, 1.6e-5),
+        );
+
+        let local = frame.local_stiffness_matrix(&nodes);
+        let global = frame.stiffness_matrix(&nodes);
+
+        for row in 0..6 {
+            for col in 0..6 {
+                assert_close(
+                    global[(row, col)],
+                    local[(row, col)],
+                    1e-12,
+                    "Horizontal stiffness",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn uniform_local_y_load_rotates_into_global_coordinates() {
+        let (nodes, frame) = make_frame();
+        let loads = vec![DistributedLoad::local_y(11, -2.0)];
+
+        let fe = frame.equivalent_load_vector(&nodes, &loads);
+
+        assert_close(fe[0], 4.0, 1e-12, "Node i global X");
+        assert_close(fe[1], -3.0, 1e-12, "Node i global Y");
+        assert_close(fe[2], -25.0 / 6.0, 1e-12, "Node i moment");
+        assert_close(fe[3], 4.0, 1e-12, "Node j global X");
+        assert_close(fe[4], -3.0, 1e-12, "Node j global Y");
+        assert_close(fe[5], 25.0 / 6.0, 1e-12, "Node j moment");
+    }
+}
