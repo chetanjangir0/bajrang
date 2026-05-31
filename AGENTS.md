@@ -1,0 +1,412 @@
+## Project info
+This project is a modular structural analysis engine written in Rust
+using the stiffness matrix method.
+
+
+## Philosophy
+
+This project prioritizes:
+
+* Correctness
+* Clean architecture
+* Strong engineering abstractions
+* Maintainability
+* Extensibility
+* Separation of concerns
+
+Design decisions should favor long-term scalability over short-term convenience.
+
+---
+
+# General Rules
+
+* Keep modules focused and cohesive.
+* Prefer composition over tightly coupled logic.
+* Avoid premature optimization.
+* Avoid unnecessary abstractions until patterns are stable.
+* Prefer explicit and readable code over clever code.
+* Keep APIs small and predictable.
+* Use strong typing wherever possible.
+* Avoid global mutable state.
+* Minimize hidden side effects.
+
+---
+
+# Architecture Principles
+
+* Separate model definition from numerical analysis.
+* Separate solver logic from rendering/UI.
+* Separate IO/serialization from internal data structures.
+* Keep mathematical formulations isolated from application logic.
+* Use traits where behavior is shared and stable.
+* Prefer immutable data flow when practical.
+
+---
+
+# Numerical Design
+
+* Prioritize numerical correctness and stability.
+* Keep coordinate transformations explicit.
+* Avoid hardcoded assumptions tied to specific element types.
+* Keep local and global systems clearly separated.
+* Use deterministic assembly and solving procedures.
+
+---
+
+# Development Practices
+
+* Implement incrementally.
+* Keep commits small and focused.
+* Write tests alongside implementations.
+* THE test cases should be numerically correct.
+* Validate against known analytical solutions whenever possible.
+* Refactor only after behavior is verified.
+
+---
+
+# Rust Practices
+
+* Prefer enums and typed structures over magic values.
+* Prefer Result-based error handling.
+* Avoid unwrap in library code.
+* Keep ownership semantics clear.
+* Keep public APIs minimal.
+* Derive traits only when meaningful.
+
+---
+
+# Long-Term Direction
+
+The architecture should remain extensible toward:
+
+* Multiple element types
+* Sparse solvers
+* Parallel assembly
+* Advanced analysis methods
+* Visualization systems
+* GUI integration
+* CAD/BIM interoperability
+
+
+# folder and file structure the project should follow (
+whenever the need for extension)
+
+bajrang/
+│
+├── Cargo.toml                         # workspace definition
+├── Cargo.lock
+├── README.md
+├── LICENSE
+├── .gitignore
+│
+├── docs/                              # theory, derivations, architecture
+│   ├── fem/
+│   │   ├── truss2d.md
+│   │   ├── beam2d.md
+│   │   ├── frame2d.md
+│   │   └── transformations.md
+│   │
+│   ├── architecture/
+│   │   ├── solver_pipeline.md
+│   │   ├── dof_system.md
+│   │   └── assembly.md
+│   │
+│   └── roadmap.md
+│
+├── examples/                          # sample models
+│   ├── truss2d/
+│   │   ├── cantilever.json
+│   │   └── bridge.json
+│   │
+│   ├── frame2d/
+│   │   └── portal_frame.json
+│   │
+│   └── beam2d/
+│       └── simply_supported.json
+│
+├── assets/
+│   ├── images/
+│   └── fonts/
+│
+├── tests/                             # integration tests
+│   └── regression.rs
+│
+├── benches/
+│   ├── assembly.rs
+│   ├── sparse_solver.rs
+│   └── large_models.rs
+│
+├── tools/
+│   ├── mesh_converter/
+│   └── dxf_importer/
+│
+├── crates/
+│
+│   ├── math/                          # low-level numerical operations
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── matrix/
+│   │       │   ├── dense.rs
+│   │       │   ├── sparse.rs
+│   │       │   ├── skyline.rs
+│   │       │   └── csr.rs
+│   │       │
+│   │       ├── vector/
+│   │       │   ├── dense.rs
+│   │       │   └── operations.rs
+│   │       │
+│   │       ├── decomposition/
+│   │       │   ├── cholesky.rs
+│   │       │   ├── lu.rs
+│   │       │   ├── qr.rs
+│   │       │   └── eigen.rs
+│   │       │
+│   │       ├── iterative/
+│   │       │   ├── cg.rs
+│   │       │   ├── gmres.rs
+│   │       │   └── preconditioner.rs
+│   │       │
+│   │       └── utils/
+│   │           ├── norms.rs
+│   │           └── tolerance.rs
+│   │
+│   │
+│   ├── model/                         # structural model definitions
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── geometry/
+│   │       │   ├── node.rs
+│   │       │   ├── coordinate_system.rs
+│   │       │   └── transform.rs
+│   │       │
+│   │       ├── materials/
+│   │       │   ├── material.rs
+│   │       │   ├── steel.rs
+│   │       │   └── concrete.rs
+│   │       │
+│   │       ├── sections/
+│   │       │   ├── section.rs
+│   │       │   ├── rectangular.rs
+│   │       │   ├── circular.rs
+│   │       │   └── i_section.rs
+│   │       │
+│   │       ├── loads/
+│   │       │   ├── nodal_load.rs
+│   │       │   ├── distributed_load.rs
+│   │       │   ├── thermal_load.rs
+│   │       │   └── load_case.rs
+│   │       │
+│   │       ├── boundary/
+│   │       │   ├── support.rs
+│   │       │   ├── constraint.rs
+│   │       │   └── releases.rs
+│   │       │
+│   │       ├── dof/
+│   │       │   ├── dof.rs
+│   │       │   ├── dof_map.rs
+│   │       │   └── numbering.rs
+│   │       │
+│   │       └── elements/
+│   │           ├── mod.rs
+│   │           ├── traits.rs
+│   │           │
+│   │           ├── truss/
+│   │           │   ├── truss2d.rs
+│   │           │   └── truss3d.rs
+│   │           │
+│   │           ├── beam/
+│   │           │   ├── beam2d.rs
+│   │           │   └── beam3d.rs
+│   │           │
+│   │           ├── frame/
+│   │           │   ├── frame2d.rs
+│   │           │   └── frame3d.rs
+│   │           │
+│   │           ├── shell/
+│   │           │   ├── quad4.rs
+│   │           │   └── tri3.rs
+│   │           │
+│   │           └── solid/
+│   │               ├── tetra4.rs
+│   │               └── hexa8.rs
+│   │
+│   │
+│   ├── solver/                        # equation solving systems
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── direct/
+│   │       │   ├── cholesky.rs
+│   │       │   ├── lu.rs
+│   │       │   └── sparse_ldlt.rs
+│   │       │
+│   │       ├── iterative/
+│   │       │   ├── cg.rs
+│   │       │   ├── bicgstab.rs
+│   │       │   └── gmres.rs
+│   │       │
+│   │       ├── eigen/
+│   │       │   ├── lanczos.rs
+│   │       │   └── subspace.rs
+│   │       │
+│   │       └── nonlinear/
+│   │           ├── newton_raphson.rs
+│   │           └── arc_length.rs
+│   │
+│   │
+│   ├── bajrang-core/                          # FEM engine
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── assembler/
+│   │       │   ├── global_stiffness.rs
+│   │       │   ├── load_vector.rs
+│   │       │   ├── mass_matrix.rs
+│   │       │   ├── geometric_stiffness.rs
+│   │       │   └── boundary_conditions.rs
+│   │       │
+│   │       ├── analysis/
+│   │       │   ├── linear_static.rs
+│   │       │   ├── nonlinear_static.rs
+│   │       │   ├── modal.rs
+│   │       │   ├── buckling.rs
+│   │       │   ├── harmonic.rs
+│   │       │   └── transient.rs
+│   │       │
+│   │       ├── post/
+│   │       │   ├── displacements.rs
+│   │       │   ├── reactions.rs
+│   │       │   ├── stresses.rs
+│   │       │   ├── strains.rs
+│   │       │   ├── element_forces.rs
+│   │       │   └── envelopes.rs
+│   │       │
+│   │       ├── mesh/
+│   │       │   ├── connectivity.rs
+│   │       │   ├── adjacency.rs
+│   │       │   └── partitioning.rs
+│   │       │
+│   │       ├── state/
+│   │       │   ├── analysis_state.rs
+│   │       │   └── solution_state.rs
+│   │       │
+│   │       └── pipeline/
+│   │           ├── preprocess.rs
+│   │           ├── solve.rs
+│   │           └── postprocess.rs
+│   │
+│   │
+│   ├── io/                            # import/export
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── json/
+│   │       │   ├── reader.rs
+│   │       │   └── writer.rs
+│   │       │
+│   │       ├── toml/
+│   │       │   ├── reader.rs
+│   │       │   └── writer.rs
+│   │       │
+│   │       ├── yaml/
+│   │       │   ├── reader.rs
+│   │       │   └── writer.rs
+│   │       │
+│   │       ├── dxf/
+│   │       │   └── importer.rs
+│   │       │
+│   │       ├── ifc/
+│   │       │   └── importer.rs
+│   │       │
+│   │       ├── results/
+│   │       │   ├── export_json.rs
+│   │       │   └── export_csv.rs
+│   │       │
+│   │       └── traits/
+│   │           ├── reader.rs
+│   │           └── writer.rs
+│   │
+│   │
+│   ├── visualization/                 # rendering + plotting
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       │
+│   │       ├── render/
+│   │       │   ├── mesh_renderer.rs
+│   │       │   ├── wireframe.rs
+│   │       │   ├── deformed_shape.rs
+│   │       │   └── stress_contours.rs
+│   │       │
+│   │       ├── camera/
+│   │       │   ├── orbit.rs
+│   │       │   └── projection.rs
+│   │       │
+│   │       └── plots/
+│   │           ├── shear_force.rs
+│   │           ├── bending_moment.rs
+│   │           └── mode_shapes.rs
+│   │
+│   │
+│   ├── cli/                           # command line interface
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── main.rs
+│   │       ├── commands/
+│   │       │   ├── solve.rs
+│   │       │   ├── validate.rs
+│   │       │   └── export.rs
+│   │       │
+│   │       └── config/
+│   │           └── cli_config.rs
+│   │
+│   │
+│   └── gui/                           # future iced GUI
+│       ├── Cargo.toml
+│       └── src/
+│           ├── main.rs
+│           ├── app.rs
+│           │
+│           ├── state/
+│           │   ├── app_state.rs
+│           │   ├── viewport_state.rs
+│           │   └── selection_state.rs
+│           │
+│           ├── viewport/
+│           │   ├── canvas.rs
+│           │   ├── interaction.rs
+│           │   ├── picking.rs
+│           │   └── gizmos.rs
+│           │
+│           ├── panels/
+│           │   ├── properties.rs
+│           │   ├── model_tree.rs
+│           │   ├── loads.rs
+│           │   ├── supports.rs
+│           │   └── analysis.rs
+│           │
+│           ├── tools/
+│           │   ├── draw_node.rs
+│           │   ├── draw_member.rs
+│           │   └── assign_load.rs
+│           │
+│           ├── renderer/
+│           │   ├── scene.rs
+│           │   ├── grid.rs
+│           │   ├── members.rs
+│           │   └── results.rs
+│           │
+│           └── theme/
+│               └── colors.rs
+│
+└── .github/
+    └── workflows/
+        ├── ci.yml
+        └── release.yml
