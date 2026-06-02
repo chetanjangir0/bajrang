@@ -29,6 +29,7 @@ Design decisions should favor long-term scalability over short-term convenience.
 * Use strong typing wherever possible.
 * Avoid global mutable state.
 * Minimize hidden side effects.
+* Avoid using excessive code commnents & also for self-explanatory parts 
 
 ---
 
