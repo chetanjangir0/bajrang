@@ -58,6 +58,8 @@ Design decisions should favor long-term scalability over short-term convenience.
 * Implement incrementally.
 * Keep commits small and focused.
 * Write tests alongside implementations.
+* Always prefer using verified, solved & established tests
+  (also there shouldn't be any license conflict for test)
 * THE test cases should be numerically correct.
 * Validate against known analytical solutions whenever possible.
 * Refactor only after behavior is verified.
