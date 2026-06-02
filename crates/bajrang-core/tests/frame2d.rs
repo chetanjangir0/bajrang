@@ -68,8 +68,18 @@ fn vertical_cantilever_horizontal_tip_load_uses_global_transformation() {
     assert_close(end_forces[4], -5_000.0, 1e-6, "Node j shear");
     assert_close(end_forces[5], 0.0, 1e-5, "Node j moment");
 
-    assert_close(reaction(&results, 0, Dof::Ux), -5_000.0, 1e-6, "Node 0 X reaction");
-    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -5_000.0,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        0.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
     assert_close(
         reaction(&results, 0, Dof::Rz),
         15_000.0,

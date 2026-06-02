@@ -1,6 +1,3 @@
-// Integration test: full pipeline from model definition → solve → results.
-// Tests the assembler, boundary condition application, and solver together.
-
 use bajrang_core::analysis::linear_static;
 use model::{
     boundary::Support, dof::Dof, elements::truss2d::Truss2D, load::NodalLoad, material::Material,
@@ -29,39 +26,48 @@ fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
 
 #[test]
 fn single_horizontal_bar_axial_load() {
-    // Single horizontal bar: Node 0 at origin, Node 1 at (1m, 0)
     let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 1.0, 0.0)];
 
-    let mat = Material::steel(); // E = 200 GPa
-    let sec = Section::truss(0.01); // A = 0.01 m²
+    let mat = Material::steel();
+    let sec = Section::truss(0.01);
 
     let elements = vec![Truss2D::new(0, 0, 1, mat, sec)];
 
-    // Pin at node 0 (fixes Ux, Uy), roller at node 1 (fixes Uy only)
     let mut supports = Support::pin(0);
     supports.extend(Support::roller_y(1));
 
-    // 10 kN in +X direction at node 1
     let loads = vec![NodalLoad::new(1, Dof::Ux, 10_000.0)];
 
     let results =
         linear_static::run(&nodes, &elements, &supports, &loads).expect("Analysis should succeed");
 
-    // Expected: u_1x = F / (AE/L) = 10_000 / (200e9 * 0.01 / 1.0) = 5e-6 m
     let u_1x = displacement(&results, 1, Dof::Ux);
     assert_close(u_1x, 5e-6, 1e-12, "Node 1 X-displacement");
 
-    // Node 0 and Node 1 should have zero Y displacement
     let u_0y = displacement(&results, 0, Dof::Uy);
     let u_1y = displacement(&results, 1, Dof::Uy);
     assert_close(u_0y, 0.0, 1e-12, "Node 0 Y-displacement");
     assert_close(u_1y, 0.0, 1e-12, "Node 1 Y-displacement");
 
-    // Member force must equal the applied load (pure axial tension)
     assert_close(results.member_forces[0], 10_000.0, 1e-6, "Member force");
-    assert_close(reaction(&results, 0, Dof::Ux), -10_000.0, 1e-6, "Node 0 X reaction");
-    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
-    assert_close(reaction(&results, 1, Dof::Uy), 0.0, 1e-6, "Node 1 Y reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -10_000.0,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        0.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        0.0,
+        1e-6,
+        "Node 1 Y reaction",
+    );
 }
 
 #[test]
@@ -73,8 +79,8 @@ fn five_bar_truss() {
         Node::new(3, 600.0, 300.0),
     ];
 
-    let mat = Material::new(210_000.0, 0.3); // MPa = N/mm^2
-    let sec = Section::truss(24.0); // mm^2
+    let mat = Material::new(210_000.0, 0.3);
+    let sec = Section::truss(24.0);
 
     let elements = vec![
         Truss2D::new(0, 0, 1, mat.clone(), sec.clone()),
@@ -136,9 +142,9 @@ fn three_bar_truss() {
         Node::new(3, 72.0, 96.0),
     ];
 
-    let mat = Material::new(3_000.0, 0.3); // ksi
-    let sec_large = Section::truss(10.0); // in^2
-    let sec_small = Section::truss(5.0); // in^2
+    let mat = Material::new(3_000.0, 0.3);
+    let sec_large = Section::truss(10.0);
+    let sec_small = Section::truss(5.0);
 
     let elements = vec![
         Truss2D::new(0, 0, 3, mat.clone(), sec_large),
@@ -275,7 +281,12 @@ fn calfem_three_bar_plane_truss_matches_reference_results() {
         1e-6,
         "Node 0 X reaction",
     );
-    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        0.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
     assert_close(
         reaction(&results, 1, Dof::Ux),
         -29_844.55958549,
@@ -288,7 +299,12 @@ fn calfem_three_bar_plane_truss_matches_reference_results() {
         1e-6,
         "Node 1 Y reaction",
     );
-    assert_close(reaction(&results, 3, Dof::Ux), 0.0, 1e-6, "Node 3 X reaction");
+    assert_close(
+        reaction(&results, 3, Dof::Ux),
+        0.0,
+        1e-6,
+        "Node 3 X reaction",
+    );
     assert_close(
         reaction(&results, 3, Dof::Uy),
         57_616.58031088,
@@ -432,16 +448,8 @@ fn calfem_ten_bar_plane_truss_matches_reference_results() {
     );
 
     let expected_member_forces = [
-        625_938.0,
-        -423_100.0,
-        170_640.0,
-        -12_372.8,
-        -69_447.0,
-        170_640.0,
-        -272_838.0,
-        -241_321.0,
-        339_534.0,
-        371_051.0,
+        625_938.0, -423_100.0, 170_640.0, -12_372.8, -69_447.0, 170_640.0, -272_838.0, -241_321.0,
+        339_534.0, 371_051.0,
     ];
 
     for (index, expected) in expected_member_forces.iter().enumerate() {

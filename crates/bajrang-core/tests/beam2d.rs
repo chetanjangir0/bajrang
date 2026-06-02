@@ -61,8 +61,18 @@ fn cantilever_tip_load_matches_euler_bernoulli_solution() {
     assert_close(end_forces[2], -1_000.0, 1e-6, "Node j shear");
     assert_close(end_forces[3], 0.0, 1e-6, "Node j moment");
 
-    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Node 0 Y reaction");
-    assert_close(reaction(&results, 0, Dof::Rz), 2_000.0, 1e-6, "Node 0 moment reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Rz),
+        2_000.0,
+        1e-6,
+        "Node 0 moment reaction",
+    );
 }
 
 #[test]
@@ -93,6 +103,16 @@ fn simply_supported_uniform_load_affects_rotations() {
         "Right rotation",
     );
 
-    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Left support reaction");
-    assert_close(reaction(&results, 1, Dof::Uy), 1_000.0, 1e-6, "Right support reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Left support reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Right support reaction",
+    );
 }

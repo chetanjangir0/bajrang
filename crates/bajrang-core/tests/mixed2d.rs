@@ -96,9 +96,24 @@ fn mixed_beam_and_truss_share_one_solution() {
         _ => panic!("Expected beam result for second member"),
     }
 
-    assert_close(reaction(&results, 0, Dof::Ux), -10_000.0, 1e-6, "Node 0 X reaction");
-    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Node 0 Y reaction");
-    assert_close(reaction(&results, 0, Dof::Rz), 2_000.0, 1e-6, "Node 0 moment reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -10_000.0,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Rz),
+        2_000.0,
+        1e-6,
+        "Node 0 moment reaction",
+    );
 }
 
 #[test]
@@ -162,9 +177,27 @@ fn calfem_frame_and_bars_mixed_system_matches_reference_displacements() {
             material.clone(),
             frame_section.clone(),
         )),
-        StructuralElement::Truss2D(Truss2D::new(6, 0, 3, material.clone(), truss_section.clone())),
-        StructuralElement::Truss2D(Truss2D::new(7, 2, 5, material.clone(), truss_section.clone())),
-        StructuralElement::Truss2D(Truss2D::new(8, 2, 1, material.clone(), truss_section.clone())),
+        StructuralElement::Truss2D(Truss2D::new(
+            6,
+            0,
+            3,
+            material.clone(),
+            truss_section.clone(),
+        )),
+        StructuralElement::Truss2D(Truss2D::new(
+            7,
+            2,
+            5,
+            material.clone(),
+            truss_section.clone(),
+        )),
+        StructuralElement::Truss2D(Truss2D::new(
+            8,
+            2,
+            1,
+            material.clone(),
+            truss_section.clone(),
+        )),
         StructuralElement::Truss2D(Truss2D::new(9, 4, 3, material, truss_section)),
     ];
 
@@ -178,9 +211,8 @@ fn calfem_frame_and_bars_mixed_system_matches_reference_displacements() {
     ];
     let loads = vec![NodalLoad::new(4, Dof::Ux, 1.0)];
 
-    let results =
-        linear_static::run_mixed(&nodes, &elements, &supports, &loads, &[])
-            .expect("Mixed analysis should succeed");
+    let results = linear_static::run_mixed(&nodes, &elements, &supports, &loads, &[])
+        .expect("Mixed analysis should succeed");
 
     let expected_displacements = [
         (2, Dof::Ux, 0.37905924),

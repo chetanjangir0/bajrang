@@ -192,20 +192,17 @@ pub fn solve_displacements<E: Element>(
     loads: &[NodalLoad],
     distributed_loads: &[DistributedLoad],
 ) -> Result<(Vec<f64>, Vec<SupportReaction>), AnalysisError> {
-    // 1. Assemble global system
     let k = assemble_global_stiffness(nodes, elements);
     let f = assemble_load_vector(nodes, elements, loads, distributed_loads);
     let mut k_constrained = k.clone();
     let mut f_constrained = f.clone();
 
-    // 2. Apply user supports plus any inactive global DOFs that no element uses.
     let mut constrained_dofs = constrained_dofs_from_supports(supports);
     constrained_dofs.extend(inactive_dofs(nodes, elements));
     constrained_dofs.sort_unstable();
     constrained_dofs.dedup();
     apply_boundary_conditions(&mut k_constrained, &mut f_constrained, &constrained_dofs);
 
-    // 3. Solve
     let displacements = solver::solve(k_constrained, f_constrained).map_err(AnalysisError::from)?;
     let support_reactions = recover_support_reactions(&k, &f, &displacements, supports);
 
