@@ -8,6 +8,15 @@ fn displacement(results: &linear_static::Frame2DResults, node: usize, dof: Dof) 
     results.displacements[node * 3 + dof as usize]
 }
 
+fn reaction(results: &linear_static::Frame2DResults, node: usize, dof: Dof) -> f64 {
+    results
+        .support_reactions
+        .iter()
+        .find(|reaction| reaction.node_id == node && reaction.dof == dof)
+        .map(|reaction| reaction.magnitude)
+        .expect("expected support reaction")
+}
+
 fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
     assert!(
         (actual - expected).abs() <= tol,
@@ -58,4 +67,13 @@ fn vertical_cantilever_horizontal_tip_load_uses_global_transformation() {
     assert_close(end_forces[3], 0.0, 1e-6, "Node j axial force");
     assert_close(end_forces[4], -5_000.0, 1e-6, "Node j shear");
     assert_close(end_forces[5], 0.0, 1e-5, "Node j moment");
+
+    assert_close(reaction(&results, 0, Dof::Ux), -5_000.0, 1e-6, "Node 0 X reaction");
+    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
+    assert_close(
+        reaction(&results, 0, Dof::Rz),
+        15_000.0,
+        1e-5,
+        "Node 0 moment reaction",
+    );
 }

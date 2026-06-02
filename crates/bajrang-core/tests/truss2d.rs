@@ -11,6 +11,15 @@ fn displacement(results: &linear_static::LinearStaticResults, node: usize, dof: 
     results.displacements[node * 3 + dof as usize]
 }
 
+fn reaction(results: &linear_static::LinearStaticResults, node: usize, dof: Dof) -> f64 {
+    results
+        .support_reactions
+        .iter()
+        .find(|reaction| reaction.node_id == node && reaction.dof == dof)
+        .map(|reaction| reaction.magnitude)
+        .expect("expected support reaction")
+}
+
 fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
     assert!(
         (actual - expected).abs() <= tol,
@@ -50,6 +59,9 @@ fn single_horizontal_bar_axial_load() {
 
     // Member force must equal the applied load (pure axial tension)
     assert_close(results.member_forces[0], 10_000.0, 1e-6, "Member force");
+    assert_close(reaction(&results, 0, Dof::Ux), -10_000.0, 1e-6, "Node 0 X reaction");
+    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
+    assert_close(reaction(&results, 1, Dof::Uy), 0.0, 1e-6, "Node 1 Y reaction");
 }
 
 #[test]
@@ -176,5 +188,42 @@ fn three_bar_truss() {
         -55.311438925,
         1e-6,
         "Element 3 axial force",
+    );
+
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -26.3611133256,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        -35.1481511005,
+        1e-6,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Ux),
+        -34.5277930644,
+        1e-6,
+        "Node 1 X reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        46.0370574192,
+        1e-6,
+        "Node 1 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 2, Dof::Ux),
+        -39.11109361,
+        1e-6,
+        "Node 2 X reaction",
+    );
+    assert_close(
+        reaction(&results, 2, Dof::Uy),
+        39.1110936813,
+        1e-6,
+        "Node 2 Y reaction",
     );
 }

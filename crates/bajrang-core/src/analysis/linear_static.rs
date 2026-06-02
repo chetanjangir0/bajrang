@@ -1,5 +1,6 @@
 use model::{
     boundary::Support,
+    dof::{Dof, global_dof_index},
     elements::{
         StructuralElement, beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D,
     },
@@ -26,6 +27,7 @@ pub enum AnalysisError {
 #[derive(Debug)]
 pub struct LinearStaticResults {
     pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
     pub member_forces: Vec<f64>,
 }
 
@@ -33,6 +35,7 @@ pub struct LinearStaticResults {
 #[derive(Debug)]
 pub struct Beam2DResults {
     pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
     pub member_end_forces: Vec<[f64; 4]>,
 }
 
@@ -40,6 +43,7 @@ pub struct Beam2DResults {
 #[derive(Debug)]
 pub struct Frame2DResults {
     pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
     pub member_end_forces: Vec<[f64; 6]>,
 }
 
@@ -47,7 +51,16 @@ pub struct Frame2DResults {
 #[derive(Debug)]
 pub struct Mixed2DResults {
     pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
     pub member_results: Vec<ElementResult>,
+}
+
+/// Reaction at a constrained support DOF.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SupportReaction {
+    pub node_id: usize,
+    pub dof: Dof,
+    pub magnitude: f64,
 }
 
 #[derive(Debug)]
@@ -63,7 +76,8 @@ pub fn run(
     supports: &[Support],
     loads: &[NodalLoad],
 ) -> Result<LinearStaticResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads, &[])?;
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, &[])?;
 
     let member_forces = elements
         .iter()
@@ -72,6 +86,7 @@ pub fn run(
 
     Ok(LinearStaticResults {
         displacements,
+        support_reactions,
         member_forces,
     })
 }
@@ -83,7 +98,8 @@ pub fn run_beam2d(
     loads: &[NodalLoad],
     distributed_loads: &[DistributedLoad],
 ) -> Result<Beam2DResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
     let member_end_forces = elements
         .iter()
@@ -95,6 +111,7 @@ pub fn run_beam2d(
 
     Ok(Beam2DResults {
         displacements,
+        support_reactions,
         member_end_forces,
     })
 }
@@ -106,7 +123,8 @@ pub fn run_frame2d(
     loads: &[NodalLoad],
     distributed_loads: &[DistributedLoad],
 ) -> Result<Frame2DResults, AnalysisError> {
-    let displacements = solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
     let member_end_forces = elements
         .iter()
@@ -120,6 +138,7 @@ pub fn run_frame2d(
 
     Ok(Frame2DResults {
         displacements,
+        support_reactions,
         member_end_forces,
     })
 }
@@ -131,7 +150,7 @@ pub fn run_mixed(
     nodal_loads: &[NodalLoad],
     distributed_loads: &[DistributedLoad],
 ) -> Result<Mixed2DResults, AnalysisError> {
-    let displacements =
+    let (displacements, support_reactions) =
         solve_displacements(nodes, elements, supports, nodal_loads, distributed_loads)?;
 
     let member_results = elements
@@ -159,6 +178,7 @@ pub fn run_mixed(
 
     Ok(Mixed2DResults {
         displacements,
+        support_reactions,
         member_results,
     })
 }
@@ -171,18 +191,46 @@ pub fn solve_displacements<E: Element>(
     supports: &[Support],
     loads: &[NodalLoad],
     distributed_loads: &[DistributedLoad],
-) -> Result<Vec<f64>, AnalysisError> {
+) -> Result<(Vec<f64>, Vec<SupportReaction>), AnalysisError> {
     // 1. Assemble global system
-    let mut k = assemble_global_stiffness(nodes, elements);
-    let mut f = assemble_load_vector(nodes, elements, loads, distributed_loads);
+    let k = assemble_global_stiffness(nodes, elements);
+    let f = assemble_load_vector(nodes, elements, loads, distributed_loads);
+    let mut k_constrained = k.clone();
+    let mut f_constrained = f.clone();
 
     // 2. Apply user supports plus any inactive global DOFs that no element uses.
     let mut constrained_dofs = constrained_dofs_from_supports(supports);
     constrained_dofs.extend(inactive_dofs(nodes, elements));
     constrained_dofs.sort_unstable();
     constrained_dofs.dedup();
-    apply_boundary_conditions(&mut k, &mut f, &constrained_dofs);
+    apply_boundary_conditions(&mut k_constrained, &mut f_constrained, &constrained_dofs);
 
     // 3. Solve
-    solver::solve(k, f).map_err(AnalysisError::from)
+    let displacements = solver::solve(k_constrained, f_constrained).map_err(AnalysisError::from)?;
+    let support_reactions = recover_support_reactions(&k, &f, &displacements, supports);
+
+    Ok((displacements, support_reactions))
+}
+
+fn recover_support_reactions(
+    stiffness: &nalgebra::DMatrix<f64>,
+    loads: &[f64],
+    displacements: &[f64],
+    supports: &[Support],
+) -> Vec<SupportReaction> {
+    let displacement_vector = nalgebra::DVector::from_column_slice(displacements);
+    let applied_load_vector = nalgebra::DVector::from_column_slice(loads);
+    let residual = stiffness * displacement_vector - applied_load_vector;
+
+    supports
+        .iter()
+        .map(|support| {
+            let idx = global_dof_index(support.node_id, support.dof);
+            SupportReaction {
+                node_id: support.node_id,
+                dof: support.dof,
+                magnitude: residual[idx],
+            }
+        })
+        .collect()
 }

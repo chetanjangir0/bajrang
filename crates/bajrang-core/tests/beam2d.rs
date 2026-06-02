@@ -13,6 +13,15 @@ fn displacement(results: &linear_static::Beam2DResults, node: usize, dof: Dof) -
     results.displacements[node * 3 + dof as usize]
 }
 
+fn reaction(results: &linear_static::Beam2DResults, node: usize, dof: Dof) -> f64 {
+    results
+        .support_reactions
+        .iter()
+        .find(|reaction| reaction.node_id == node && reaction.dof == dof)
+        .map(|reaction| reaction.magnitude)
+        .expect("expected support reaction")
+}
+
 fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
     assert!(
         (actual - expected).abs() <= tol,
@@ -51,6 +60,9 @@ fn cantilever_tip_load_matches_euler_bernoulli_solution() {
     assert_close(end_forces[1], 2_000.0, 1e-6, "Node i moment");
     assert_close(end_forces[2], -1_000.0, 1e-6, "Node j shear");
     assert_close(end_forces[3], 0.0, 1e-6, "Node j moment");
+
+    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Node 0 Y reaction");
+    assert_close(reaction(&results, 0, Dof::Rz), 2_000.0, 1e-6, "Node 0 moment reaction");
 }
 
 #[test]
@@ -80,4 +92,7 @@ fn simply_supported_uniform_load_affects_rotations() {
         1e-12,
         "Right rotation",
     );
+
+    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Left support reaction");
+    assert_close(reaction(&results, 1, Dof::Uy), 1_000.0, 1e-6, "Right support reaction");
 }

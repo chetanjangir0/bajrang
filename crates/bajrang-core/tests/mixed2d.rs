@@ -13,6 +13,15 @@ fn displacement(results: &linear_static::Mixed2DResults, node: usize, dof: Dof) 
     results.displacements[node * 3 + dof as usize]
 }
 
+fn reaction(results: &linear_static::Mixed2DResults, node: usize, dof: Dof) -> f64 {
+    results
+        .support_reactions
+        .iter()
+        .find(|reaction| reaction.node_id == node && reaction.dof == dof)
+        .map(|reaction| reaction.magnitude)
+        .expect("expected support reaction")
+}
+
 fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {
     assert!(
         (actual - expected).abs() <= tol,
@@ -86,4 +95,8 @@ fn mixed_beam_and_truss_share_one_solution() {
         }
         _ => panic!("Expected beam result for second member"),
     }
+
+    assert_close(reaction(&results, 0, Dof::Ux), -10_000.0, 1e-6, "Node 0 X reaction");
+    assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Node 0 Y reaction");
+    assert_close(reaction(&results, 0, Dof::Rz), 2_000.0, 1e-6, "Node 0 moment reaction");
 }
