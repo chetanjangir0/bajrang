@@ -227,3 +227,229 @@ fn three_bar_truss() {
         "Node 2 Y reaction",
     );
 }
+
+#[test]
+fn calfem_three_bar_plane_truss_matches_reference_results() {
+    // Reference:
+    // CALFEM for Python, "Example: Bars" (exs2 / exs3 docs)
+    // https://calfem-for-python.readthedocs.io/en/latest/examples/exs3.html
+    let nodes = vec![
+        Node::new(0, 0.0, 0.0),
+        Node::new(1, 0.0, 1.2),
+        Node::new(2, 1.6, 0.0),
+        Node::new(3, 1.6, 1.2),
+    ];
+
+    let material = Material::new(2.0e11, 0.3);
+    let elements = vec![
+        Truss2D::new(0, 0, 2, material.clone(), Section::truss(6.0e-4)),
+        Truss2D::new(1, 2, 3, material.clone(), Section::truss(3.0e-4)),
+        Truss2D::new(2, 1, 2, material, Section::truss(10.0e-4)),
+    ];
+
+    let mut supports = Support::pin(0);
+    supports.extend(Support::pin(1));
+    supports.extend(Support::pin(3));
+
+    let loads = vec![NodalLoad::new(2, Dof::Uy, -80.0e3)];
+
+    let results =
+        linear_static::run(&nodes, &elements, &supports, &loads).expect("Analysis should succeed");
+
+    assert_close(
+        displacement(&results, 2, Dof::Ux),
+        -3.9793e-4,
+        1e-8,
+        "Node 2 Ux",
+    );
+    assert_close(
+        displacement(&results, 2, Dof::Uy),
+        -1.15233e-3,
+        1e-8,
+        "Node 2 Uy",
+    );
+
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        29_844.55958549,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(reaction(&results, 0, Dof::Uy), 0.0, 1e-6, "Node 0 Y reaction");
+    assert_close(
+        reaction(&results, 1, Dof::Ux),
+        -29_844.55958549,
+        1e-6,
+        "Node 1 X reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        22_383.41968912,
+        1e-6,
+        "Node 1 Y reaction",
+    );
+    assert_close(reaction(&results, 3, Dof::Ux), 0.0, 1e-6, "Node 3 X reaction");
+    assert_close(
+        reaction(&results, 3, Dof::Uy),
+        57_616.58031088,
+        1e-6,
+        "Node 3 Y reaction",
+    );
+
+    assert_close(
+        results.member_forces[0],
+        -29_844.55958549,
+        1e-6,
+        "Element 1 axial force",
+    );
+    assert_close(
+        results.member_forces[1],
+        57_616.58031088,
+        1e-6,
+        "Element 2 axial force",
+    );
+    assert_close(
+        results.member_forces[2],
+        37_305.69948187,
+        1e-6,
+        "Element 3 axial force",
+    );
+}
+
+#[test]
+fn calfem_ten_bar_plane_truss_matches_reference_results() {
+    // Reference:
+    // CALFEM for Python, "Example: More bars" (exs4)
+    // https://calfem-for-python.readthedocs.io/en/latest/examples/exs4.html
+    let nodes = vec![
+        Node::new(0, 0.0, 2.0),
+        Node::new(1, 0.0, 0.0),
+        Node::new(2, 2.0, 2.0),
+        Node::new(3, 2.0, 0.0),
+        Node::new(4, 4.0, 2.0),
+        Node::new(5, 4.0, 0.0),
+    ];
+
+    let material = Material::new(2.1e11, 0.3);
+    let section = Section::truss(25.0e-4);
+
+    let elements = vec![
+        Truss2D::new(0, 0, 2, material.clone(), section.clone()),
+        Truss2D::new(1, 1, 3, material.clone(), section.clone()),
+        Truss2D::new(2, 2, 4, material.clone(), section.clone()),
+        Truss2D::new(3, 3, 5, material.clone(), section.clone()),
+        Truss2D::new(4, 3, 2, material.clone(), section.clone()),
+        Truss2D::new(5, 5, 4, material.clone(), section.clone()),
+        Truss2D::new(6, 1, 2, material.clone(), section.clone()),
+        Truss2D::new(7, 3, 4, material.clone(), section.clone()),
+        Truss2D::new(8, 0, 3, material.clone(), section.clone()),
+        Truss2D::new(9, 2, 5, material, section),
+    ];
+
+    let mut supports = Support::pin(0);
+    supports.extend(Support::pin(1));
+
+    let loads = vec![
+        NodalLoad::new(5, Dof::Ux, 0.5e6 * 0.5),
+        NodalLoad::new(5, Dof::Uy, -0.5e6 * 0.8660254037844386),
+    ];
+
+    let results =
+        linear_static::run(&nodes, &elements, &supports, &loads).expect("Analysis should succeed");
+
+    assert_close(
+        displacement(&results, 2, Dof::Ux),
+        0.00238453,
+        1e-8,
+        "Node 2 Ux",
+    );
+    assert_close(
+        displacement(&results, 2, Dof::Uy),
+        -0.00446330,
+        1e-8,
+        "Node 2 Uy",
+    );
+    assert_close(
+        displacement(&results, 3, Dof::Ux),
+        -0.00161181,
+        1e-8,
+        "Node 3 Ux",
+    );
+    assert_close(
+        displacement(&results, 3, Dof::Uy),
+        -0.00419874,
+        1e-8,
+        "Node 3 Uy",
+    );
+    assert_close(
+        displacement(&results, 4, Dof::Ux),
+        0.00303458,
+        1e-8,
+        "Node 4 Ux",
+    );
+    assert_close(
+        displacement(&results, 4, Dof::Uy),
+        -0.01068377,
+        1e-8,
+        "Node 4 Uy",
+    );
+    assert_close(
+        displacement(&results, 5, Dof::Ux),
+        -0.00165894,
+        1e-8,
+        "Node 5 Ux",
+    );
+    assert_close(
+        displacement(&results, 5, Dof::Uy),
+        -0.01133382,
+        1e-8,
+        "Node 5 Uy",
+    );
+
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -866_025.404,
+        1e-3,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        240_086.918,
+        1e-3,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Ux),
+        616_025.404,
+        1e-3,
+        "Node 1 X reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        192_925.784,
+        1e-3,
+        "Node 1 Y reaction",
+    );
+
+    let expected_member_forces = [
+        625_938.0,
+        -423_100.0,
+        170_640.0,
+        -12_372.8,
+        -69_447.0,
+        170_640.0,
+        -272_838.0,
+        -241_321.0,
+        339_534.0,
+        371_051.0,
+    ];
+
+    for (index, expected) in expected_member_forces.iter().enumerate() {
+        assert_close(
+            results.member_forces[index],
+            *expected,
+            1.0,
+            "CALFEM member force",
+        );
+    }
+}

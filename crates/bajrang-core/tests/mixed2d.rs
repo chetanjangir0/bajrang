@@ -2,7 +2,7 @@ use bajrang_core::analysis::linear_static::{self, ElementResult};
 use model::{
     boundary::Support,
     dof::Dof,
-    elements::{StructuralElement, beam2d::Beam2D, truss2d::Truss2D},
+    elements::{StructuralElement, beam2d::Beam2D, frame2d::Frame2D, truss2d::Truss2D},
     load::NodalLoad,
     material::Material,
     node::Node,
@@ -99,4 +99,110 @@ fn mixed_beam_and_truss_share_one_solution() {
     assert_close(reaction(&results, 0, Dof::Ux), -10_000.0, 1e-6, "Node 0 X reaction");
     assert_close(reaction(&results, 0, Dof::Uy), 1_000.0, 1e-6, "Node 0 Y reaction");
     assert_close(reaction(&results, 0, Dof::Rz), 2_000.0, 1e-6, "Node 0 moment reaction");
+}
+
+#[test]
+fn calfem_frame_and_bars_mixed_system_matches_reference_displacements() {
+    // Reference:
+    // CALFEM for Python, "Example: Frame and bars" (exs7)
+    // https://calfem-for-python.readthedocs.io/en/latest/examples/exs7.html
+    let nodes = vec![
+        Node::new(0, 0.0, 0.0),
+        Node::new(1, 1.0, 0.0),
+        Node::new(2, 0.0, 1.0),
+        Node::new(3, 1.0, 1.0),
+        Node::new(4, 0.0, 2.0),
+        Node::new(5, 1.0, 2.0),
+    ];
+
+    let material = Material::new(1.0, 0.3);
+    let frame_section = Section::new(1.0, 1.0);
+    let truss_section = Section::truss(1.0);
+
+    let elements = vec![
+        StructuralElement::Frame2D(Frame2D::new(
+            0,
+            0,
+            2,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Frame2D(Frame2D::new(
+            1,
+            2,
+            4,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Frame2D(Frame2D::new(
+            2,
+            1,
+            3,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Frame2D(Frame2D::new(
+            3,
+            3,
+            5,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Frame2D(Frame2D::new(
+            4,
+            2,
+            3,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Frame2D(Frame2D::new(
+            5,
+            4,
+            5,
+            material.clone(),
+            frame_section.clone(),
+        )),
+        StructuralElement::Truss2D(Truss2D::new(6, 0, 3, material.clone(), truss_section.clone())),
+        StructuralElement::Truss2D(Truss2D::new(7, 2, 5, material.clone(), truss_section.clone())),
+        StructuralElement::Truss2D(Truss2D::new(8, 2, 1, material.clone(), truss_section.clone())),
+        StructuralElement::Truss2D(Truss2D::new(9, 4, 3, material, truss_section)),
+    ];
+
+    let supports = vec![
+        Support::new(0, Dof::Ux),
+        Support::new(0, Dof::Uy),
+        Support::new(0, Dof::Rz),
+        Support::new(1, Dof::Ux),
+        Support::new(1, Dof::Uy),
+        Support::new(1, Dof::Rz),
+    ];
+    let loads = vec![NodalLoad::new(4, Dof::Ux, 1.0)];
+
+    let results =
+        linear_static::run_mixed(&nodes, &elements, &supports, &loads, &[])
+            .expect("Mixed analysis should succeed");
+
+    let expected_displacements = [
+        (2, Dof::Ux, 0.37905924),
+        (2, Dof::Uy, 0.30451926),
+        (2, Dof::Rz, -0.65956297),
+        (3, Dof::Ux, 0.30414480),
+        (3, Dof::Uy, -0.28495132),
+        (3, Dof::Rz, -0.54570174),
+        (4, Dof::Ux, 1.19791809),
+        (4, Dof::Uy, 0.44655174),
+        (4, Dof::Rz, -0.85908643),
+        (5, Dof::Ux, 0.96969909),
+        (5, Dof::Uy, -0.34780417),
+        (5, Dof::Rz, -0.74373562),
+    ];
+
+    for (node_id, dof, expected) in expected_displacements {
+        assert_close(
+            displacement(&results, node_id, dof),
+            expected,
+            1e-8,
+            "CALFEM mixed displacement",
+        );
+    }
 }
