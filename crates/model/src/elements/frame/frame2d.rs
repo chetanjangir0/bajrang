@@ -116,6 +116,58 @@ impl Frame2D {
 
         self.local_stiffness_matrix(nodes) * u_local
     }
+
+    pub fn equivalent_nodal_load_vector(
+        &self,
+        nodes: &[Node],
+        distributed_loads: &[DistributedLoad],
+    ) -> DVector<f64> {
+        let geom = self.geometry(&nodes[self.node_i], &nodes[self.node_j]);
+        let l = geom.length;
+        let t = self.transformation_matrix(nodes);
+        let mut f_local = Vector6::zeros();
+
+        for load in distributed_loads
+            .iter()
+            .filter(|load| load.element_id == self.id)
+        {
+            let (wx_local, wy_local) = match load.direction {
+                DistributedLoadDirection::LocalX => (load.magnitude, 0.0),
+                DistributedLoadDirection::LocalY => (0.0, load.magnitude),
+                DistributedLoadDirection::GlobalX => {
+                    (geom.cos * load.magnitude, -geom.sin * load.magnitude)
+                }
+                DistributedLoadDirection::GlobalY => {
+                    (geom.sin * load.magnitude, geom.cos * load.magnitude)
+                }
+            };
+
+            #[rustfmt::skip]
+            let fe_axial = Vector6::from_row_slice(&[
+                wx_local * l / 2.0,
+                0.0,
+                0.0,
+                wx_local * l / 2.0,
+                0.0,
+                0.0,
+            ]);
+
+            #[rustfmt::skip]
+            let fe_transverse = Vector6::from_row_slice(&[
+                0.0,
+                wy_local * l / 2.0,
+                wy_local * l * l / 12.0,
+                0.0,
+                wy_local * l / 2.0,
+                -wy_local * l * l / 12.0,
+            ]);
+
+            f_local += fe_axial + fe_transverse;
+        }
+
+        let f_global = t.transpose() * f_local;
+        DVector::from_row_slice(f_global.as_slice())
+    }
 }
 
 impl Element for Frame2D {
@@ -147,35 +199,7 @@ impl Element for Frame2D {
         nodes: &[Node],
         distributed_loads: &[DistributedLoad],
     ) -> DVector<f64> {
-        let l = self
-            .geometry(&nodes[self.node_i], &nodes[self.node_j])
-            .length;
-        let t = self.transformation_matrix(nodes);
-        let mut f_local = Vector6::zeros();
-
-        for load in distributed_loads
-            .iter()
-            .filter(|load| load.element_id == self.id)
-        {
-            match load.direction {
-                DistributedLoadDirection::LocalY => {
-                    #[rustfmt::skip]
-                    let fe = Vector6::from_row_slice(&[
-                        0.0,
-                        load.magnitude * l / 2.0,
-                        load.magnitude * l * l / 12.0,
-                        0.0,
-                        load.magnitude * l / 2.0,
-                        -load.magnitude * l * l / 12.0,
-                    ]);
-
-                    f_local += fe;
-                }
-            }
-        }
-
-        let f_global = t.transpose() * f_local;
-        DVector::from_row_slice(f_global.as_slice())
+        self.equivalent_nodal_load_vector(nodes, distributed_loads)
     }
 }
 
@@ -256,7 +280,7 @@ mod tests {
         let (nodes, frame) = make_frame();
         let loads = vec![DistributedLoad::local_y(11, -2.0)];
 
-        let fe = frame.equivalent_load_vector(&nodes, &loads);
+        let fe = frame.equivalent_nodal_load_vector(&nodes, &loads);
 
         assert_close(fe[0], 4.0, 1e-12, "Node i global X");
         assert_close(fe[1], -3.0, 1e-12, "Node i global Y");
@@ -264,5 +288,35 @@ mod tests {
         assert_close(fe[3], 4.0, 1e-12, "Node j global X");
         assert_close(fe[4], -3.0, 1e-12, "Node j global Y");
         assert_close(fe[5], 25.0 / 6.0, 1e-12, "Node j moment");
+    }
+
+    #[test]
+    fn uniform_global_y_load_converts_to_global_equivalent_nodal_forces() {
+        let (nodes, frame) = make_frame();
+        let loads = vec![DistributedLoad::global_y(11, -2.0)];
+
+        let fe = frame.equivalent_nodal_load_vector(&nodes, &loads);
+
+        assert_close(fe[0], 0.0, 1e-12, "Node i global X");
+        assert_close(fe[1], -5.0, 1e-12, "Node i global Y");
+        assert_close(fe[2], -2.5, 1e-12, "Node i moment");
+        assert_close(fe[3], 0.0, 1e-12, "Node j global X");
+        assert_close(fe[4], -5.0, 1e-12, "Node j global Y");
+        assert_close(fe[5], 2.5, 1e-12, "Node j moment");
+    }
+
+    #[test]
+    fn uniform_local_x_load_creates_axial_equivalent_nodal_forces() {
+        let (nodes, frame) = make_frame();
+        let loads = vec![DistributedLoad::local_x(11, 3.0)];
+
+        let fe = frame.equivalent_nodal_load_vector(&nodes, &loads);
+
+        assert_close(fe[0], 4.5, 1e-12, "Node i global X");
+        assert_close(fe[1], 6.0, 1e-12, "Node i global Y");
+        assert_close(fe[2], 0.0, 1e-12, "Node i moment");
+        assert_close(fe[3], 4.5, 1e-12, "Node j global X");
+        assert_close(fe[4], 6.0, 1e-12, "Node j global Y");
+        assert_close(fe[5], 0.0, 1e-12, "Node j moment");
     }
 }

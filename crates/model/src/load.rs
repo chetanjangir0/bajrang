@@ -21,8 +21,10 @@ impl NodalLoad {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DistributedLoadDirection {
-    /// Acts along the element's local +Y axis.
+    LocalX,
     LocalY,
+    GlobalX,
+    GlobalY,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,11 +36,35 @@ pub struct DistributedLoad {
 }
 
 impl DistributedLoad {
+    pub fn local_x(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::LocalX,
+        }
+    }
+
     pub fn local_y(element_id: usize, magnitude: f64) -> Self {
         Self {
             element_id,
             magnitude,
             direction: DistributedLoadDirection::LocalY,
+        }
+    }
+
+    pub fn global_x(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::GlobalX,
+        }
+    }
+
+    pub fn global_y(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::GlobalY,
         }
     }
 }

@@ -116,3 +116,43 @@ fn simply_supported_uniform_load_affects_rotations() {
         "Right support reaction",
     );
 }
+
+#[test]
+fn simply_supported_global_y_uniform_load_matches_local_y_solution() {
+    let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 2.0, 0.0)];
+    let material = Material::new(200.0e9, 0.3);
+    let section = Section::new(0.02, 8.0e-6);
+    let elements = vec![Beam2D::new(0, 0, 1, material, section)];
+
+    let supports = vec![Support::new(0, Dof::Uy), Support::new(1, Dof::Uy)];
+    let distributed_loads = vec![DistributedLoad::global_y(0, -1_000.0)];
+
+    let results = linear_static::run_beam2d(&nodes, &elements, &supports, &[], &distributed_loads)
+        .expect("Beam analysis with global distributed load should succeed");
+
+    assert_close(
+        displacement(&results, 0, Dof::Rz),
+        -2.0833333333333334e-4,
+        1e-12,
+        "Left rotation",
+    );
+    assert_close(
+        displacement(&results, 1, Dof::Rz),
+        2.0833333333333334e-4,
+        1e-12,
+        "Right rotation",
+    );
+
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Left support reaction",
+    );
+    assert_close(
+        reaction(&results, 1, Dof::Uy),
+        1_000.0,
+        1e-6,
+        "Right support reaction",
+    );
+}

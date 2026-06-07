@@ -1,7 +1,12 @@
 use bajrang_core::analysis::linear_static;
 use model::{
-    boundary::Support, dof::Dof, elements::frame2d::Frame2D, load::NodalLoad, material::Material,
-    node::Node, section::Section,
+    boundary::Support,
+    dof::Dof,
+    elements::frame2d::Frame2D,
+    load::{DistributedLoad, NodalLoad},
+    material::Material,
+    node::Node,
+    section::Section,
 };
 
 fn displacement(results: &linear_static::Frame2DResults, node: usize, dof: Dof) -> f64 {
@@ -83,6 +88,43 @@ fn vertical_cantilever_horizontal_tip_load_uses_global_transformation() {
     assert_close(
         reaction(&results, 0, Dof::Rz),
         15_000.0,
+        1e-5,
+        "Node 0 moment reaction",
+    );
+}
+
+#[test]
+fn vertical_cantilever_global_x_uniform_load_produces_bending_reactions() {
+    let nodes = vec![Node::new(0, 0.0, 0.0), Node::new(1, 0.0, 3.0)];
+    let material = Material::new(210.0e9, 0.3);
+    let section = Section::new(0.02, 1.6e-5);
+    let elements = vec![Frame2D::new(0, 0, 1, material, section)];
+
+    let supports = vec![
+        Support::new(0, Dof::Ux),
+        Support::new(0, Dof::Uy),
+        Support::new(0, Dof::Rz),
+    ];
+    let loads = vec![DistributedLoad::global_x(0, 2_000.0)];
+
+    let results = linear_static::run_frame2d(&nodes, &elements, &supports, &[], &loads)
+        .expect("Frame analysis with global distributed load should succeed");
+
+    assert_close(
+        reaction(&results, 0, Dof::Ux),
+        -6_000.0,
+        1e-6,
+        "Node 0 X reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Uy),
+        0.0,
+        1e-6,
+        "Node 0 Y reaction",
+    );
+    assert_close(
+        reaction(&results, 0, Dof::Rz),
+        9_000.0,
         1e-5,
         "Node 0 moment reaction",
     );

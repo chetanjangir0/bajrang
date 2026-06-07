@@ -89,6 +89,44 @@ impl Beam2D {
 
         Vector4::new(forces[0], forces[1], forces[2], forces[3])
     }
+
+    pub fn equivalent_nodal_load_vector(
+        &self,
+        nodes: &[Node],
+        distributed_loads: &[DistributedLoad],
+    ) -> DVector<f64> {
+        let l = self
+            .geometry(&nodes[self.node_i], &nodes[self.node_j])
+            .length;
+        let mut f = DVector::zeros(4);
+
+        for load in distributed_loads
+            .iter()
+            .filter(|load| load.element_id == self.id)
+        {
+            match load.direction {
+                DistributedLoadDirection::LocalY | DistributedLoadDirection::GlobalY => {
+                    #[rustfmt::skip]
+                    let fe = DVector::from_row_slice(&[
+                        load.magnitude * l / 2.0,
+                        load.magnitude * l * l / 12.0,
+                        load.magnitude * l / 2.0,
+                        -load.magnitude * l * l / 12.0,
+                    ]);
+
+                    f += fe;
+                }
+                DistributedLoadDirection::LocalX | DistributedLoadDirection::GlobalX => {
+                    panic!(
+                        "Beam2D element {} does not support distributed loads along the beam axis",
+                        self.id
+                    );
+                }
+            }
+        }
+
+        f
+    }
 }
 
 impl Element for Beam2D {
@@ -114,31 +152,7 @@ impl Element for Beam2D {
         nodes: &[Node],
         distributed_loads: &[DistributedLoad],
     ) -> DVector<f64> {
-        let l = self
-            .geometry(&nodes[self.node_i], &nodes[self.node_j])
-            .length;
-        let mut f = DVector::zeros(4);
-
-        for load in distributed_loads
-            .iter()
-            .filter(|load| load.element_id == self.id)
-        {
-            match load.direction {
-                DistributedLoadDirection::LocalY => {
-                    #[rustfmt::skip]
-                    let fe = DVector::from_row_slice(&[
-                        load.magnitude * l / 2.0,
-                        load.magnitude * l * l / 12.0,
-                        load.magnitude * l / 2.0,
-                        -load.magnitude * l * l / 12.0,
-                    ]);
-
-                    f += fe;
-                }
-            }
-        }
-
-        f
+        self.equivalent_nodal_load_vector(nodes, distributed_loads)
     }
 }
 
@@ -177,7 +191,20 @@ mod tests {
         let (nodes, beam) = make_beam();
         let loads = vec![DistributedLoad::local_y(7, -2.0)];
 
-        let fe = beam.equivalent_load_vector(&nodes, &loads);
+        let fe = beam.equivalent_nodal_load_vector(&nodes, &loads);
+
+        assert_close(fe[0], -3.0, 1e-12, "Node i shear");
+        assert_close(fe[1], -1.5, 1e-12, "Node i moment");
+        assert_close(fe[2], -3.0, 1e-12, "Node j shear");
+        assert_close(fe[3], 1.5, 1e-12, "Node j moment");
+    }
+
+    #[test]
+    fn uniform_global_y_load_maps_to_same_consistent_nodal_vector() {
+        let (nodes, beam) = make_beam();
+        let loads = vec![DistributedLoad::global_y(7, -2.0)];
+
+        let fe = beam.equivalent_nodal_load_vector(&nodes, &loads);
 
         assert_close(fe[0], -3.0, 1e-12, "Node i shear");
         assert_close(fe[1], -1.5, 1e-12, "Node i moment");
@@ -190,7 +217,7 @@ mod tests {
         let (nodes, beam) = make_beam();
         let loads = vec![DistributedLoad::local_y(99, -2.0)];
 
-        let fe = beam.equivalent_load_vector(&nodes, &loads);
+        let fe = beam.equivalent_nodal_load_vector(&nodes, &loads);
 
         assert_eq!(fe, DVector::zeros(4));
     }
