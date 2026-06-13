@@ -1,11 +1,16 @@
 use bajrang_core::analysis::linear_static;
 use model::{
-    boundary::Support, dof::Dof, elements::truss2d::Truss2D, load::NodalLoad, material::Material,
-    node::Node, section::Section,
+    boundary::Support,
+    dof::{Dof, global_dof_index},
+    elements::truss2d::Truss2D,
+    load::NodalLoad,
+    material::Material,
+    node::Node,
+    section::Section,
 };
 
 fn displacement(results: &linear_static::LinearStaticResults, node: usize, dof: Dof) -> f64 {
-    results.displacements[node * 3 + dof as usize]
+    results.displacements[global_dof_index(node, dof)]
 }
 
 fn reaction(results: &linear_static::LinearStaticResults, node: usize, dof: Dof) -> f64 {

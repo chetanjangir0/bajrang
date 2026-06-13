@@ -3,6 +3,7 @@ use model::{
     dof::{Dof, global_dof_index},
     elements::{
         StructuralElement, beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D,
+        truss3d::Truss3D,
     },
     load::{DistributedLoad, NodalLoad},
     node::Node,
@@ -26,6 +27,14 @@ pub enum AnalysisError {
 /// Results from a linear static analysis.
 #[derive(Debug)]
 pub struct LinearStaticResults {
+    pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
+    pub member_forces: Vec<f64>,
+}
+
+/// Results from a 3D truss analysis.
+#[derive(Debug)]
+pub struct Truss3DResults {
     pub displacements: Vec<f64>,
     pub support_reactions: Vec<SupportReaction>,
     pub member_forces: Vec<f64>,
@@ -66,6 +75,7 @@ pub struct SupportReaction {
 #[derive(Debug)]
 pub enum ElementResult {
     Truss2D { axial_force: f64 },
+    Truss3D { axial_force: f64 },
     Beam2D { end_forces: [f64; 4] },
     Frame2D { end_forces: [f64; 6] },
 }
@@ -85,6 +95,27 @@ pub fn run(
         .collect();
 
     Ok(LinearStaticResults {
+        displacements,
+        support_reactions,
+        member_forces,
+    })
+}
+
+pub fn run_truss3d(
+    nodes: &[Node],
+    elements: &[Truss3D],
+    supports: &[Support],
+    loads: &[NodalLoad],
+) -> Result<Truss3DResults, AnalysisError> {
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, &[])?;
+
+    let member_forces = elements
+        .iter()
+        .map(|element| element.axial_force(nodes, &displacements))
+        .collect();
+
+    Ok(Truss3DResults {
         displacements,
         support_reactions,
         member_forces,
@@ -157,6 +188,9 @@ pub fn run_mixed(
         .iter()
         .map(|element| match element {
             StructuralElement::Truss2D(truss) => ElementResult::Truss2D {
+                axial_force: truss.axial_force(nodes, &displacements),
+            },
+            StructuralElement::Truss3D(truss) => ElementResult::Truss3D {
                 axial_force: truss.axial_force(nodes, &displacements),
             },
             StructuralElement::Beam2D(beam) => {

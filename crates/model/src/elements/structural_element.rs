@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     elements::{
         beam::beam2d::Beam2D, frame::frame2d::Frame2D, traits::Element, truss::truss2d::Truss2D,
+        truss::truss3d::Truss3D,
     },
     load::DistributedLoad,
     node::Node,
@@ -12,6 +13,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StructuralElement {
     Truss2D(Truss2D),
+    Truss3D(Truss3D),
     Beam2D(Beam2D),
     Frame2D(Frame2D),
 }
@@ -20,6 +22,7 @@ impl Element for StructuralElement {
     fn id(&self) -> usize {
         match self {
             Self::Truss2D(element) => element.id(),
+            Self::Truss3D(element) => element.id(),
             Self::Beam2D(element) => element.id(),
             Self::Frame2D(element) => element.id(),
         }
@@ -28,6 +31,7 @@ impl Element for StructuralElement {
     fn stiffness_matrix(&self, nodes: &[Node]) -> DMatrix<f64> {
         match self {
             Self::Truss2D(element) => element.stiffness_matrix(nodes),
+            Self::Truss3D(element) => element.stiffness_matrix(nodes),
             Self::Beam2D(element) => element.stiffness_matrix(nodes),
             Self::Frame2D(element) => element.stiffness_matrix(nodes),
         }
@@ -36,6 +40,7 @@ impl Element for StructuralElement {
     fn dof_indices(&self) -> Vec<usize> {
         match self {
             Self::Truss2D(element) => element.dof_indices(),
+            Self::Truss3D(element) => element.dof_indices(),
             Self::Beam2D(element) => element.dof_indices(),
             Self::Frame2D(element) => element.dof_indices(),
         }
@@ -48,6 +53,7 @@ impl Element for StructuralElement {
     ) -> DVector<f64> {
         match self {
             Self::Truss2D(element) => element.equivalent_load_vector(nodes, distributed_loads),
+            Self::Truss3D(element) => element.equivalent_load_vector(nodes, distributed_loads),
             Self::Beam2D(element) => element.equivalent_load_vector(nodes, distributed_loads),
             Self::Frame2D(element) => element.equivalent_load_vector(nodes, distributed_loads),
         }

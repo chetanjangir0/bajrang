@@ -8,3 +8,4 @@ pub use beam::beam2d;
 pub use frame::frame2d;
 pub use structural_element::StructuralElement;
 pub use truss::truss2d;
+pub use truss::truss3d;

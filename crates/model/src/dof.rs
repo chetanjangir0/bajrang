@@ -4,10 +4,13 @@ use serde::{Deserialize, Serialize};
 pub enum Dof {
     Ux = 0,
     Uy = 1,
-    Rz = 2,
+    Uz = 2,
+    Rx = 3,
+    Ry = 4,
+    Rz = 5,
 }
 
-pub const DOFS_PER_NODE: usize = 3;
+pub const DOFS_PER_NODE: usize = 6;
 
 pub fn global_dof_index(node_id: usize, dof: Dof) -> usize {
     node_id * DOFS_PER_NODE + dof as usize

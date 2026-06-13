@@ -4,7 +4,7 @@ use bajrang_core::{
 };
 use model::{
     boundary::Support,
-    dof::Dof,
+    dof::{Dof, global_dof_index},
     elements::{beam2d::Beam2D, frame2d::Frame2D, truss2d::Truss2D},
     load::{DistributedLoad, NodalLoad},
     material::Material,
@@ -13,7 +13,7 @@ use model::{
 };
 
 fn displacement(values: &[f64], node: usize, dof: Dof) -> f64 {
-    values[node * 3 + dof as usize]
+    values[global_dof_index(node, dof)]
 }
 
 fn assert_close(actual: f64, expected: f64, tol: f64, label: &str) {

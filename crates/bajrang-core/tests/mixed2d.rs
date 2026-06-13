@@ -1,7 +1,7 @@
 use bajrang_core::analysis::linear_static::{self, ElementResult};
 use model::{
     boundary::Support,
-    dof::Dof,
+    dof::{Dof, global_dof_index},
     elements::{StructuralElement, beam2d::Beam2D, frame2d::Frame2D, truss2d::Truss2D},
     load::NodalLoad,
     material::Material,
@@ -10,7 +10,7 @@ use model::{
 };
 
 fn displacement(results: &linear_static::Mixed2DResults, node: usize, dof: Dof) -> f64 {
-    results.displacements[node * 3 + dof as usize]
+    results.displacements[global_dof_index(node, dof)]
 }
 
 fn reaction(results: &linear_static::Mixed2DResults, node: usize, dof: Dof) -> f64 {
