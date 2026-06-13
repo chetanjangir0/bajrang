@@ -45,6 +45,43 @@ Design decisions should favor long-term scalability over short-term convenience.
 
 ---
 
+---
+# CORE GUI DESIGN DIRECTIVES
+
+1. CLARITY FIRST
+Every element must serve a purpose. If you cannot justify why a component exists, remove it. Never add decoration that competes with content.
+
+2. DESIGN FOR THE USER'S MENTAL MODEL
+Map the interface to how users think about the task — not how the system works internally. A user wants to "send money," not "POST /api/v2/transactions."
+
+3. ENFORCE HIERARCHY
+Use size, weight, and contrast to communicate importance. The most critical action on any screen must be the most visually dominant element.
+
+4. APPLY COGNITIVE LOAD LAWS
+- Hick's Law: Fewer options = faster decisions. Default to progressive disclosure.
+- Fitts's Law: Frequent actions must be large and close to the user's current focus.
+- 80/20 Rule: Design for the 20% of features used 80% of the time. Hide the rest.
+
+5. MAINTAIN CONSISTENCY
+Identical actions must look and behave identically across all screens. Do not invent new patterns when an existing one works.
+
+6. ALWAYS PROVIDE FEEDBACK
+Every user action must produce a visible response: hover states, loading indicators, success/error messages. Silence is an error state.
+
+7. PREVENT ERRORS BEFORE RECOVERING FROM THEM
+Disabled states, confirmation dialogs, and constraints beat undo buttons.
+
+8. ACCESSIBILITY IS NON-NEGOTIABLE
+Minimum 4.5:1 contrast ratio. All interactions must be keyboard-navigable. All images need alt text. Treat this as a hard constraint, not a post-launch task.
+
+9. RESPECT PLATFORM CONVENTIONS
+Follow the platform's Human Interface Guidelines or Material Design spec unless there is a specific, justified reason to deviate.
+
+10. HANDLE EMPTY STATES
+Every list, table, or dashboar
+
+---
+
 # Numerical Design
 
 * Prioritize numerical correctness and stability.
