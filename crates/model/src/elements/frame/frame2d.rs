@@ -140,6 +140,12 @@ impl Frame2D {
                 DistributedLoadDirection::GlobalY => {
                     (geom.sin * load.magnitude, geom.cos * load.magnitude)
                 }
+                DistributedLoadDirection::LocalZ | DistributedLoadDirection::GlobalZ => {
+                    panic!(
+                        "Frame2D element {} does not support out-of-plane distributed loads",
+                        self.id
+                    );
+                }
             };
 
             #[rustfmt::skip]

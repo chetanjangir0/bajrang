@@ -122,6 +122,12 @@ impl Beam2D {
                         self.id
                     );
                 }
+                DistributedLoadDirection::LocalZ | DistributedLoadDirection::GlobalZ => {
+                    panic!(
+                        "Beam2D element {} does not support out-of-plane distributed loads",
+                        self.id
+                    );
+                }
             }
         }
 

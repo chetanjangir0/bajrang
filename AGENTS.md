@@ -30,6 +30,7 @@ Design decisions should favor long-term scalability over short-term convenience.
 * Avoid global mutable state.
 * Minimize hidden side effects.
 * Avoid using excessive code commnents & also for self-explanatory parts 
+* Suggest a good commit message after any work you do at the end.
 
 ---
 

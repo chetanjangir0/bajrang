@@ -22,4 +22,8 @@ impl Material {
     pub fn steel() -> Self {
         Self::new(200e9, 0.3)
     }
+
+    pub fn shear_modulus(&self) -> f64 {
+        self.elastic_modulus / (2.0 * (1.0 + self.poisson_ratio))
+    }
 }

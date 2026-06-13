@@ -2,8 +2,8 @@ use model::{
     boundary::Support,
     dof::{Dof, global_dof_index},
     elements::{
-        StructuralElement, beam2d::Beam2D, frame2d::Frame2D, traits::Element, truss2d::Truss2D,
-        truss3d::Truss3D,
+        StructuralElement, beam2d::Beam2D, beam3d::Beam3D, frame2d::Frame2D, frame3d::Frame3D,
+        traits::Element, truss2d::Truss2D, truss3d::Truss3D,
     },
     load::{DistributedLoad, NodalLoad},
     node::Node,
@@ -48,12 +48,28 @@ pub struct Beam2DResults {
     pub member_end_forces: Vec<[f64; 4]>,
 }
 
+/// Results from a 3D beam analysis.
+#[derive(Debug)]
+pub struct Beam3DResults {
+    pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
+    pub member_end_forces: Vec<[f64; 10]>,
+}
+
 /// Results from a 2D frame analysis.
 #[derive(Debug)]
 pub struct Frame2DResults {
     pub displacements: Vec<f64>,
     pub support_reactions: Vec<SupportReaction>,
     pub member_end_forces: Vec<[f64; 6]>,
+}
+
+/// Results from a 3D frame analysis.
+#[derive(Debug)]
+pub struct Frame3DResults {
+    pub displacements: Vec<f64>,
+    pub support_reactions: Vec<SupportReaction>,
+    pub member_end_forces: Vec<[f64; 12]>,
 }
 
 /// Results from a mixed 2D analysis.
@@ -77,7 +93,9 @@ pub enum ElementResult {
     Truss2D { axial_force: f64 },
     Truss3D { axial_force: f64 },
     Beam2D { end_forces: [f64; 4] },
+    Beam3D { end_forces: [f64; 10] },
     Frame2D { end_forces: [f64; 6] },
+    Frame3D { end_forces: [f64; 12] },
 }
 
 pub fn run(
@@ -174,6 +192,62 @@ pub fn run_frame2d(
     })
 }
 
+pub fn run_beam3d(
+    nodes: &[Node],
+    elements: &[Beam3D],
+    supports: &[Support],
+    loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
+) -> Result<Beam3DResults, AnalysisError> {
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
+
+    let member_end_forces = elements
+        .iter()
+        .map(|element| {
+            let forces = element.end_forces(nodes, &displacements);
+            [
+                forces[0], forces[1], forces[2], forces[3], forces[4], forces[5], forces[6],
+                forces[7], forces[8], forces[9],
+            ]
+        })
+        .collect();
+
+    Ok(Beam3DResults {
+        displacements,
+        support_reactions,
+        member_end_forces,
+    })
+}
+
+pub fn run_frame3d(
+    nodes: &[Node],
+    elements: &[Frame3D],
+    supports: &[Support],
+    loads: &[NodalLoad],
+    distributed_loads: &[DistributedLoad],
+) -> Result<Frame3DResults, AnalysisError> {
+    let (displacements, support_reactions) =
+        solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
+
+    let member_end_forces = elements
+        .iter()
+        .map(|element| {
+            let forces = element.end_forces(nodes, &displacements);
+            [
+                forces[0], forces[1], forces[2], forces[3], forces[4], forces[5], forces[6],
+                forces[7], forces[8], forces[9], forces[10], forces[11],
+            ]
+        })
+        .collect();
+
+    Ok(Frame3DResults {
+        displacements,
+        support_reactions,
+        member_end_forces,
+    })
+}
+
 pub fn run_mixed(
     nodes: &[Node],
     elements: &[StructuralElement],
@@ -199,11 +273,29 @@ pub fn run_mixed(
                     end_forces: [forces[0], forces[1], forces[2], forces[3]],
                 }
             }
+            StructuralElement::Beam3D(beam) => {
+                let forces = beam.end_forces(nodes, &displacements);
+                ElementResult::Beam3D {
+                    end_forces: [
+                        forces[0], forces[1], forces[2], forces[3], forces[4], forces[5],
+                        forces[6], forces[7], forces[8], forces[9],
+                    ],
+                }
+            }
             StructuralElement::Frame2D(frame) => {
                 let forces = frame.end_forces(nodes, &displacements);
                 ElementResult::Frame2D {
                     end_forces: [
                         forces[0], forces[1], forces[2], forces[3], forces[4], forces[5],
+                    ],
+                }
+            }
+            StructuralElement::Frame3D(frame) => {
+                let forces = frame.end_forces(nodes, &displacements);
+                ElementResult::Frame3D {
+                    end_forces: [
+                        forces[0], forces[1], forces[2], forces[3], forces[4], forces[5],
+                        forces[6], forces[7], forces[8], forces[9], forces[10], forces[11],
                     ],
                 }
             }

@@ -23,8 +23,10 @@ impl NodalLoad {
 pub enum DistributedLoadDirection {
     LocalX,
     LocalY,
+    LocalZ,
     GlobalX,
     GlobalY,
+    GlobalZ,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -52,6 +54,14 @@ impl DistributedLoad {
         }
     }
 
+    pub fn local_z(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::LocalZ,
+        }
+    }
+
     pub fn global_x(element_id: usize, magnitude: f64) -> Self {
         Self {
             element_id,
@@ -65,6 +75,14 @@ impl DistributedLoad {
             element_id,
             magnitude,
             direction: DistributedLoadDirection::GlobalY,
+        }
+    }
+
+    pub fn global_z(element_id: usize, magnitude: f64) -> Self {
+        Self {
+            element_id,
+            magnitude,
+            direction: DistributedLoadDirection::GlobalZ,
         }
     }
 }
