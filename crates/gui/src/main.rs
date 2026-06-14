@@ -25,5 +25,5 @@ fn view(app: &BajrangApp) -> iced::Element<'_, Message> {
 }
 
 fn theme(_app: &BajrangApp) -> iced::Theme {
-    iced::Theme::Light
+    iced::Theme::Dark
 }

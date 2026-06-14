@@ -218,7 +218,7 @@ impl ViewportCanvas<'_> {
                     style: canvas::Style::Solid(if selected {
                         theme::ACCENT
                     } else {
-                        Color::from_rgb(0.122, 0.149, 0.176)
+                        Color::from_rgb(0.812, 0.847, 0.867)
                     }),
                     width: if selected { 4.0 } else { 2.5 },
                     ..canvas::Stroke::default()
@@ -248,7 +248,7 @@ impl ViewportCanvas<'_> {
                 if selected || draft {
                     theme::ACCENT
                 } else {
-                    Color::from_rgb(0.059, 0.086, 0.110)
+                    Color::from_rgb(0.902, 0.925, 0.941)
                 },
             );
 
@@ -338,7 +338,7 @@ impl ViewportCanvas<'_> {
 fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportState) {
     let spacing = viewport.zoom.max(24.0);
     let origin = viewport.origin(bounds);
-    let color = Color::from_rgba(0.620, 0.675, 0.725, 0.32);
+    let color = Color::from_rgba(0.459, 0.506, 0.545, 0.24);
 
     let mut x = origin.x.rem_euclid(spacing);
     while x <= bounds.width {
@@ -369,7 +369,7 @@ fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportSta
 
 fn draw_axes(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportState) {
     let origin = viewport.origin(bounds);
-    let color = Color::from_rgba(0.180, 0.220, 0.260, 0.45);
+    let color = Color::from_rgba(0.765, 0.800, 0.827, 0.34);
 
     frame.stroke(
         &canvas::Path::line(

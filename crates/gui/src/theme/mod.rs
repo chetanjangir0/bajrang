@@ -3,18 +3,18 @@ use iced::{Background, Border, Color, Shadow, Theme};
 
 use crate::app::StatusLevel;
 
-pub const APP_BACKGROUND: Color = Color::from_rgb(0.944, 0.953, 0.961);
-pub const SURFACE: Color = Color::WHITE;
-pub const SURFACE_MUTED: Color = Color::from_rgb(0.914, 0.933, 0.949);
-pub const VIEWPORT_BACKGROUND: Color = Color::from_rgb(0.976, 0.980, 0.984);
-pub const BORDER: Color = Color::from_rgb(0.718, 0.757, 0.792);
-pub const TEXT: Color = Color::from_rgb(0.075, 0.094, 0.118);
-pub const TEXT_MUTED: Color = Color::from_rgb(0.333, 0.384, 0.435);
-pub const ACCENT: Color = Color::from_rgb(0.000, 0.337, 0.624);
-pub const ACCENT_SOFT: Color = Color::from_rgb(0.839, 0.918, 0.976);
-pub const LOAD: Color = Color::from_rgb(0.682, 0.100, 0.094);
-pub const SUPPORT: Color = Color::from_rgb(0.000, 0.392, 0.251);
-pub const WARNING: Color = Color::from_rgb(0.592, 0.329, 0.000);
+pub const APP_BACKGROUND: Color = Color::from_rgb(0.071, 0.078, 0.086);
+pub const SURFACE: Color = Color::from_rgb(0.110, 0.122, 0.137);
+pub const SURFACE_MUTED: Color = Color::from_rgb(0.153, 0.169, 0.188);
+pub const VIEWPORT_BACKGROUND: Color = Color::from_rgb(0.082, 0.090, 0.102);
+pub const BORDER: Color = Color::from_rgb(0.278, 0.302, 0.333);
+pub const TEXT: Color = Color::from_rgb(0.902, 0.925, 0.941);
+pub const TEXT_MUTED: Color = Color::from_rgb(0.651, 0.694, 0.729);
+pub const ACCENT: Color = Color::from_rgb(0.176, 0.678, 0.678);
+pub const ACCENT_SOFT: Color = Color::from_rgb(0.129, 0.255, 0.263);
+pub const LOAD: Color = Color::from_rgb(0.957, 0.373, 0.322);
+pub const SUPPORT: Color = Color::from_rgb(0.345, 0.812, 0.573);
+pub const WARNING: Color = Color::from_rgb(0.929, 0.647, 0.243);
 
 pub fn status_color(level: StatusLevel) -> Color {
     match level {
@@ -101,14 +101,14 @@ pub fn inset(_theme: &Theme) -> container::Style {
 pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
     let background = match status {
         button::Status::Active => ACCENT,
-        button::Status::Hovered => Color::from_rgb(0.000, 0.282, 0.529),
-        button::Status::Pressed => Color::from_rgb(0.000, 0.224, 0.431),
-        button::Status::Disabled => Color::from_rgb(0.761, 0.784, 0.808),
+        button::Status::Hovered => Color::from_rgb(0.133, 0.596, 0.600),
+        button::Status::Pressed => Color::from_rgb(0.098, 0.482, 0.486),
+        button::Status::Disabled => Color::from_rgb(0.243, 0.263, 0.286),
     };
 
     button::Style {
         background: Some(Background::Color(background)),
-        text_color: Color::WHITE,
+        text_color: Color::from_rgb(0.027, 0.043, 0.047),
         border: Border {
             color: Color::TRANSPARENT,
             width: 0.0,
@@ -123,8 +123,8 @@ pub fn secondary_button(_theme: &Theme, status: button::Status) -> button::Style
     let background = match status {
         button::Status::Active => SURFACE,
         button::Status::Hovered => SURFACE_MUTED,
-        button::Status::Pressed => Color::from_rgb(0.855, 0.878, 0.898),
-        button::Status::Disabled => Color::from_rgb(0.937, 0.945, 0.953),
+        button::Status::Pressed => Color::from_rgb(0.192, 0.212, 0.235),
+        button::Status::Disabled => Color::from_rgb(0.137, 0.149, 0.165),
     };
 
     button::Style {
@@ -147,8 +147,8 @@ pub fn tool_button(theme: &Theme, status: button::Status) -> button::Style {
 pub fn tool_button_active(_theme: &Theme, status: button::Status) -> button::Style {
     let background = match status {
         button::Status::Active => ACCENT_SOFT,
-        button::Status::Hovered => Color::from_rgb(0.788, 0.890, 0.965),
-        button::Status::Pressed => Color::from_rgb(0.733, 0.855, 0.945),
+        button::Status::Hovered => Color::from_rgb(0.157, 0.310, 0.318),
+        button::Status::Pressed => Color::from_rgb(0.106, 0.235, 0.243),
         button::Status::Disabled => SURFACE_MUTED,
     };
 
