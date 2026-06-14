@@ -80,6 +80,98 @@ Follow the platform's Human Interface Guidelines or Material Design spec unless 
 10. HANDLE EMPTY STATES
 Every list, table, or dashboar
 
+## Iced specific design directives:
+
+Before modifying code that uses Iced toolkit, 
+consult below documentation resources:
+
+- api reference
+https://docs.rs/iced/latest/iced/
+
+- pocket guide 
+https://docs.rs/iced/latest/iced/#the-pocket-guide
+
+- official examples
+https://github.com/iced-rs/iced/tree/latest/examples
+
+- official book
+https://book.iced.rs/
+
+- unofficial book
+https://jl710.github.io/iced-guide/
+
+- How to structure large application?
+A common pattern is to leverage this composability to split an application into
+different screens:
+
+```rs
+use contacts::Contacts;
+use conversation::Conversation;
+
+use iced::{Element, Task};
+
+struct State {
+    screen: Screen,
+}
+
+enum Screen {
+    Contacts(Contacts),
+    Conversation(Conversation),
+}
+
+enum Message {
+   Contacts(contacts::Message),
+   Conversation(conversation::Message)
+}
+
+fn update(state: &mut State, message: Message) -> Task<Message> {
+    match message {
+        Message::Contacts(message) => {
+            if let Screen::Contacts(contacts) = &mut state.screen {
+                let action = contacts.update(message);
+
+                match action {
+                    contacts::Action::None => Task::none(),
+                    contacts::Action::Run(task) => task.map(Message::Contacts),
+                    contacts::Action::Chat(contact) => {
+                        let (conversation, task) = Conversation::new(contact);
+
+                        state.screen = Screen::Conversation(conversation);
+
+                        task.map(Message::Conversation)
+                    }
+                 }
+            } else {
+                Task::none()    
+            }
+        }
+        Message::Conversation(message) => {
+            if let Screen::Conversation(conversation) = &mut state.screen {
+                conversation.update(message).map(Message::Conversation)
+            } else {
+                Task::none()    
+            }
+        }
+    }
+}
+
+fn view(state: &State) -> Element<'_, Message> {
+    match &state.screen {
+        Screen::Contacts(contacts) => contacts.view().map(Message::Contacts),
+        Screen::Conversation(conversation) => conversation.view().map(Message::Conversation),
+    }
+}
+```
+The update method of a screen can return an Action enum that can be leveraged by
+the parent to execute a task or transition to a completely different screen
+altogether. The variants of Action can have associated data. For instance, in
+the example above, the Conversation screen is created when Contacts::update
+returns an Action::Chat with the selected contact. Effectively, this approach
+lets you “tell a story” to connect different screens together in a type safe
+way. Furthermore, functor methods like Task::map, Element::map, and
+Subscription::map make composition seamless.
+
+
 ---
 
 # Numerical Design
