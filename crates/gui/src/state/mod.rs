@@ -22,14 +22,14 @@ pub struct StructuralModel {
 impl StructuralModel {
     pub fn sample() -> Self {
         let material = Material::steel();
-        let truss_section = Section::truss(0.004);
         let frame_section = Section::new(0.006, 8.0e-6);
+        let truss_section = Section::truss(0.004);
 
         let nodes = vec![
             Node::new(0, 0.0, 0.0),
-            Node::new(1, 5.0, 0.0),
-            Node::new(2, 10.0, 0.0),
-            Node::new(3, 5.0, 3.0),
+            Node::new(1, 4.0, 0.0),
+            Node::new(2, 8.0, 0.0),
+            Node::new(3, 4.0, 3.0),
         ];
 
         let elements = vec![
@@ -55,13 +55,78 @@ impl StructuralModel {
         supports.extend(Support::roller_y(2));
 
         Self {
-            name: "Untitled 2D mixed frame".to_string(),
+            name: "Mixed 2D frame study".to_string(),
             nodes,
             elements,
             supports,
             nodal_loads: vec![NodalLoad::new(3, Dof::Uy, -20_000.0)],
             distributed_loads: Vec::new(),
         }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            name: "Untitled model".to_string(),
+            nodes: Vec::new(),
+            elements: Vec::new(),
+            supports: Vec::new(),
+            nodal_loads: Vec::new(),
+            distributed_loads: Vec::new(),
+        }
+    }
+
+    pub fn add_node(&mut self, x: f64, y: f64) -> usize {
+        let id = self.next_node_id();
+        self.nodes.push(Node::new(id, snapped(x), snapped(y)));
+        id
+    }
+
+    pub fn add_frame_member(&mut self, node_i: usize, node_j: usize) -> Result<usize, String> {
+        if node_i == node_j {
+            return Err("Member endpoints must be different nodes.".to_string());
+        }
+
+        if self.element_between(node_i, node_j).is_some() {
+            return Err("A member already connects those nodes.".to_string());
+        }
+
+        let id = self.next_element_id();
+        self.elements.push(StructuralElement::Frame2D(Frame2D::new(
+            id,
+            node_i,
+            node_j,
+            Material::steel(),
+            Section::new(0.006, 8.0e-6),
+        )));
+
+        Ok(id)
+    }
+
+    pub fn add_default_load(&mut self, node_id: usize) {
+        self.nodal_loads
+            .push(NodalLoad::new(node_id, Dof::Uy, -10_000.0));
+    }
+
+    pub fn assign_pin_support(&mut self, node_id: usize) {
+        for support in Support::pin(node_id) {
+            if !self
+                .supports
+                .iter()
+                .any(|existing| existing.node_id == support.node_id && existing.dof == support.dof)
+            {
+                self.supports.push(support);
+            }
+        }
+    }
+
+    pub fn node(&self, id: usize) -> Option<&Node> {
+        self.nodes.iter().find(|node| node.id == id)
+    }
+
+    pub fn element(&self, id: usize) -> Option<&StructuralElement> {
+        self.elements
+            .iter()
+            .find(|element| element_id(element) == id)
     }
 
     pub fn truss2d_elements(&self) -> Vec<Truss2D> {
@@ -82,6 +147,29 @@ impl StructuralModel {
                 _ => None,
             })
             .collect()
+    }
+
+    fn next_node_id(&self) -> usize {
+        self.nodes
+            .iter()
+            .map(|node| node.id)
+            .max()
+            .map_or(0, |id| id + 1)
+    }
+
+    fn next_element_id(&self) -> usize {
+        self.elements
+            .iter()
+            .map(element_id)
+            .max()
+            .map_or(0, |id| id + 1)
+    }
+
+    fn element_between(&self, node_i: usize, node_j: usize) -> Option<usize> {
+        self.elements.iter().find_map(|element| {
+            let (id, a, b) = element_data(element);
+            ((a == node_i && b == node_j) || (a == node_j && b == node_i)).then_some(id)
+        })
     }
 }
 
@@ -112,6 +200,16 @@ impl WorkspaceTool {
             Self::AssignSupport => "Support",
         }
     }
+
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Select => "S",
+            Self::AddNode => "+",
+            Self::DrawMember => "M",
+            Self::AssignLoad => "F",
+            Self::AssignSupport => "P",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,14 +222,25 @@ impl Selection {
     pub fn label(self) -> String {
         match self {
             Self::Node(id) => format!("Node {id}"),
-            Self::Element(id) => format!("Element {id}"),
+            Self::Element(id) => format!("Member {id}"),
         }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct InteractionDraft {
+    pub member_start: Option<usize>,
+}
+
+impl InteractionDraft {
+    pub fn clear(&mut self) {
+        self.member_start = None;
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum AnalysisState {
-    NotRun,
+    Idle,
     Success(AnalysisSummary),
     Failed(String),
 }
@@ -177,11 +286,62 @@ pub fn run_basic_analysis(model: &StructuralModel) -> Result<AnalysisSummary, St
         });
     }
 
-    Err("Add at least one supported 2D truss or frame element before solving.".to_string())
+    Err("Add at least one supported 2D truss or frame member before solving.".to_string())
+}
+
+pub fn element_id(element: &StructuralElement) -> usize {
+    element_data(element).0
+}
+
+pub fn element_data(element: &StructuralElement) -> (usize, usize, usize) {
+    match element {
+        StructuralElement::Truss2D(element) => (element.id, element.node_i, element.node_j),
+        StructuralElement::Truss3D(element) => (element.id, element.node_i, element.node_j),
+        StructuralElement::Beam2D(element) => (element.id, element.node_i, element.node_j),
+        StructuralElement::Beam3D(element) => (element.id, element.node_i, element.node_j),
+        StructuralElement::Frame2D(element) => (element.id, element.node_i, element.node_j),
+        StructuralElement::Frame3D(element) => (element.id, element.node_i, element.node_j),
+    }
+}
+
+pub fn element_kind(element: &StructuralElement) -> &'static str {
+    match element {
+        StructuralElement::Truss2D(_) => "Truss2D",
+        StructuralElement::Truss3D(_) => "Truss3D",
+        StructuralElement::Beam2D(_) => "Beam2D",
+        StructuralElement::Beam3D(_) => "Beam3D",
+        StructuralElement::Frame2D(_) => "Frame2D",
+        StructuralElement::Frame3D(_) => "Frame3D",
+    }
+}
+
+pub fn dof_label(dof: Dof) -> &'static str {
+    match dof {
+        Dof::Ux => "Ux",
+        Dof::Uy => "Uy",
+        Dof::Uz => "Uz",
+        Dof::Rx => "Rx",
+        Dof::Ry => "Ry",
+        Dof::Rz => "Rz",
+    }
+}
+
+pub fn member_length(model: &StructuralModel, node_i: usize, node_j: usize) -> Option<f64> {
+    let ni = model.node(node_i)?;
+    let nj = model.node(node_j)?;
+    let dx = nj.x - ni.x;
+    let dy = nj.y - ni.y;
+    let dz = nj.z - ni.z;
+
+    Some((dx * dx + dy * dy + dz * dz).sqrt())
 }
 
 fn max_abs(values: &[f64]) -> f64 {
     values
         .iter()
         .fold(0.0, |max, value| f64::max(max, value.abs()))
+}
+
+fn snapped(value: f64) -> f64 {
+    (value * 4.0).round() / 4.0
 }

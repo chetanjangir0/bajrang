@@ -7,4 +7,14 @@ edition = "2024"
 bajrang-core = { path = "../bajrang-core" }
 model = { path = "../model" }
 
-iced = { version = "0.14.0", features = ["canvas"] }
+iced = { version = "0.14.0", default-features = false, features = [
+    "canvas",
+    "crisp",
+    "fira-sans",
+    "linux-theme-detection",
+    "thread-pool",
+    "wayland",
+    "web-colors",
+    "wgpu",
+    "x11",
+] }

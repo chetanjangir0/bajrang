@@ -1,10 +1,12 @@
 use iced::widget::{column, container, row, text};
-use iced::{Element, Fill};
-use model::{dof::Dof, elements::StructuralElement};
+use iced::{Element, Fill, Length};
 
 use crate::{
     app::Message,
-    state::{AnalysisState, Selection, StructuralModel},
+    state::{
+        AnalysisState, Selection, StructuralModel, dof_label, element_data, element_kind,
+        member_length,
+    },
     theme,
 };
 
@@ -13,124 +15,118 @@ pub fn view<'a>(
     selection: Option<Selection>,
     analysis: &'a AnalysisState,
 ) -> Element<'a, Message> {
-    let selected = match selection {
-        Some(Selection::Node(id)) => node_properties(model, id),
-        Some(Selection::Element(id)) => element_properties(model, id),
-        None => empty_selection(),
-    };
-
     column![
-        text("Properties").size(18).color(theme::TEXT),
-        selected,
-        analysis_summary(analysis),
+        text("Inspector").size(18).color(theme::TEXT),
+        selection_panel(model, selection),
+        analysis_panel(analysis),
     ]
-    .spacing(18)
+    .spacing(16)
     .padding(14)
     .width(Fill)
     .into()
 }
 
-fn node_properties(model: &StructuralModel, id: usize) -> Element<'_, Message> {
-    if let Some(node) = model.nodes.iter().find(|node| node.id == id) {
-        column![
-            property_header(format!("Node {}", node.id)),
-            property_row("X", format!("{:.3} m", node.x)),
-            property_row("Y", format!("{:.3} m", node.y)),
-            property_row("Z", format!("{:.3} m", node.z)),
-            property_row("Supports", support_summary(model, id)),
-            property_row("Loads", load_summary(model, id)),
-        ]
-        .spacing(8)
-        .into()
-    } else {
-        empty_selection()
+fn selection_panel(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
+    match selection {
+        Some(Selection::Node(id)) => node_panel(model, id),
+        Some(Selection::Element(id)) => member_panel(model, id),
+        None => empty_panel("Selection", "Nothing selected"),
     }
 }
 
-fn element_properties(model: &StructuralModel, id: usize) -> Element<'_, Message> {
-    if let Some(element) = model
-        .elements
-        .iter()
-        .find(|element| element_id(element) == id)
-    {
-        let (kind, node_i, node_j) = element_endpoints(element);
-
-        column![
-            property_header(format!("{kind} {id}")),
-            property_row("Start node", format!("N{node_i}")),
-            property_row("End node", format!("N{node_j}")),
-            property_row("Length", format!("{:.3} m", length(model, node_i, node_j))),
-        ]
-        .spacing(8)
-        .into()
-    } else {
-        empty_selection()
-    }
-}
-
-fn analysis_summary(analysis: &AnalysisState) -> Element<'_, Message> {
-    let content = match analysis {
-        AnalysisState::NotRun => column![
-            property_header("Analysis"),
-            text("No analysis has been run.")
-                .size(14)
-                .color(theme::TEXT_MUTED),
-        ],
-        AnalysisState::Success(summary) => column![
-            property_header("Analysis"),
-            property_row("Scope", summary.result_scope.to_string()),
-            property_row("Max |u|", format!("{:.3e} m", summary.max_displacement)),
-            property_row("Reactions", summary.reaction_count.to_string()),
-        ],
-        AnalysisState::Failed(error) => column![
-            property_header("Analysis"),
-            text(error).size(14).color(theme::DANGER),
-        ],
+fn node_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
+    let Some(node) = model.node(id) else {
+        return empty_panel("Selection", "Missing node");
     };
 
-    container(content.spacing(8))
+    panel(
+        "Node",
+        column![
+            property("Id", format!("N{}", node.id)),
+            property("X", format!("{:.3} m", node.x)),
+            property("Y", format!("{:.3} m", node.y)),
+            property("Z", format!("{:.3} m", node.z)),
+            property("Supports", support_summary(model, id)),
+            property("Loads", load_summary(model, id)),
+        ],
+    )
+}
+
+fn member_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
+    let Some(element) = model.element(id) else {
+        return empty_panel("Selection", "Missing member");
+    };
+
+    let (_, node_i, node_j) = element_data(element);
+    let length = member_length(model, node_i, node_j).unwrap_or_default();
+
+    panel(
+        "Member",
+        column![
+            property("Id", format!("M{id}")),
+            property("Type", element_kind(element).to_string()),
+            property("Start", format!("N{node_i}")),
+            property("End", format!("N{node_j}")),
+            property("Length", format!("{length:.3} m")),
+        ],
+    )
+}
+
+fn analysis_panel(analysis: &AnalysisState) -> Element<'_, Message> {
+    match analysis {
+        AnalysisState::Idle => empty_panel("Analysis", "Not solved"),
+        AnalysisState::Success(summary) => panel(
+            "Analysis",
+            column![
+                property("Scope", summary.result_scope.to_string()),
+                property("Max |u|", format!("{:.3e} m", summary.max_displacement)),
+                property("Reactions", summary.reaction_count.to_string()),
+            ],
+        ),
+        AnalysisState::Failed(error) => panel(
+            "Analysis",
+            column![text(error).size(14).color(theme::LOAD).width(Fill)],
+        ),
+    }
+}
+
+fn panel<'a>(
+    title: &'static str,
+    content: iced::widget::Column<'a, Message>,
+) -> Element<'a, Message> {
+    container(column![text(title).size(15).color(theme::TEXT), content.spacing(8)].spacing(10))
         .padding(10)
         .width(Fill)
-        .style(theme::neutral_row)
+        .style(theme::inset)
         .into()
 }
 
-fn empty_selection() -> Element<'static, Message> {
-    container(
-        column![
-            property_header("No selection"),
-            text("Select a node or member in the viewport.")
-                .size(14)
-                .color(theme::TEXT_MUTED),
-        ]
-        .spacing(8),
+fn empty_panel(title: &'static str, value: &'static str) -> Element<'static, Message> {
+    panel(
+        title,
+        column![text(value).size(14).color(theme::TEXT_MUTED).width(Fill)],
     )
-    .padding(10)
-    .width(Fill)
-    .style(theme::neutral_row)
-    .into()
 }
 
-fn property_header(label: impl Into<String>) -> Element<'static, Message> {
-    text(label.into()).size(15).color(theme::TEXT).into()
-}
-
-fn property_row(label: &'static str, value: String) -> Element<'static, Message> {
+fn property(label: &'static str, value: String) -> Element<'static, Message> {
     row![
-        text(label).size(13).color(theme::TEXT_MUTED).width(110),
-        text(value).size(14).color(theme::TEXT),
+        text(label)
+            .size(13)
+            .color(theme::TEXT_MUTED)
+            .width(Length::Fixed(92.0)),
+        text(value).size(14).color(theme::TEXT).width(Fill),
     ]
     .spacing(8)
     .into()
 }
 
 fn support_summary(model: &StructuralModel, node_id: usize) -> String {
-    let labels: Vec<&'static str> = model
+    let labels = model
         .supports
         .iter()
         .filter(|support| support.node_id == node_id)
         .map(|support| dof_label(support.dof))
-        .collect();
+        .collect::<Vec<_>>();
 
     if labels.is_empty() {
         "None".to_string()
@@ -140,64 +136,16 @@ fn support_summary(model: &StructuralModel, node_id: usize) -> String {
 }
 
 fn load_summary(model: &StructuralModel, node_id: usize) -> String {
-    let loads: Vec<String> = model
+    let labels = model
         .nodal_loads
         .iter()
         .filter(|load| load.node_id == node_id)
-        .map(|load| format!("{} {:+.2e}", dof_label(load.dof), load.magnitude))
-        .collect();
+        .map(|load| format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0))
+        .collect::<Vec<_>>();
 
-    if loads.is_empty() {
+    if labels.is_empty() {
         "None".to_string()
     } else {
-        loads.join(", ")
-    }
-}
-
-fn length(model: &StructuralModel, node_i: usize, node_j: usize) -> f64 {
-    let Some(ni) = model.nodes.iter().find(|node| node.id == node_i) else {
-        return 0.0;
-    };
-    let Some(nj) = model.nodes.iter().find(|node| node.id == node_j) else {
-        return 0.0;
-    };
-
-    let dx = nj.x - ni.x;
-    let dy = nj.y - ni.y;
-    let dz = nj.z - ni.z;
-
-    (dx * dx + dy * dy + dz * dz).sqrt()
-}
-
-fn element_id(element: &StructuralElement) -> usize {
-    match element {
-        StructuralElement::Truss2D(element) => element.id,
-        StructuralElement::Truss3D(element) => element.id,
-        StructuralElement::Beam2D(element) => element.id,
-        StructuralElement::Beam3D(element) => element.id,
-        StructuralElement::Frame2D(element) => element.id,
-        StructuralElement::Frame3D(element) => element.id,
-    }
-}
-
-fn element_endpoints(element: &StructuralElement) -> (&'static str, usize, usize) {
-    match element {
-        StructuralElement::Truss2D(element) => ("Truss2D", element.node_i, element.node_j),
-        StructuralElement::Truss3D(element) => ("Truss3D", element.node_i, element.node_j),
-        StructuralElement::Beam2D(element) => ("Beam2D", element.node_i, element.node_j),
-        StructuralElement::Beam3D(element) => ("Beam3D", element.node_i, element.node_j),
-        StructuralElement::Frame2D(element) => ("Frame2D", element.node_i, element.node_j),
-        StructuralElement::Frame3D(element) => ("Frame3D", element.node_i, element.node_j),
-    }
-}
-
-fn dof_label(dof: Dof) -> &'static str {
-    match dof {
-        Dof::Ux => "Ux",
-        Dof::Uy => "Uy",
-        Dof::Uz => "Uz",
-        Dof::Rx => "Rx",
-        Dof::Ry => "Ry",
-        Dof::Rz => "Rz",
+        labels.join(", ")
     }
 }

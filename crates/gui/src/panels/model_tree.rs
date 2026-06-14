@@ -1,133 +1,175 @@
-use iced::widget::{column, container, text};
-use iced::{Element, Fill};
-use model::{dof::Dof, elements::StructuralElement};
+use iced::widget::{button, column, container, row, text};
+use iced::{Alignment, Element, Fill, Length};
 
 use crate::{
     app::Message,
-    state::{Selection, StructuralModel},
+    state::{
+        InteractionDraft, Selection, StructuralModel, dof_label, element_data, element_id,
+        element_kind,
+    },
     theme,
 };
 
-pub fn view(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
-    let nodes = model.nodes.iter().fold(
-        column![section_title("Nodes")].spacing(4),
-        |column, node| {
-            column.push(row_item(
-                format!("N{}  ({:.2}, {:.2})", node.id, node.x, node.y),
-                selection == Some(Selection::Node(node.id)),
+pub fn view(
+    model: &StructuralModel,
+    selection: Option<Selection>,
+    draft: InteractionDraft,
+) -> Element<'_, Message> {
+    column![
+        panel_title("Model"),
+        summary(model),
+        nodes(model, selection, draft),
+        members(model, selection),
+        supports(model),
+        loads(model),
+    ]
+    .spacing(16)
+    .padding(14)
+    .width(Fill)
+    .into()
+}
+
+fn summary(model: &StructuralModel) -> Element<'_, Message> {
+    container(
+        column![
+            metric_row("Nodes", model.nodes.len()),
+            metric_row("Members", model.elements.len()),
+            metric_row("Supports", model.supports.len()),
+            metric_row("Loads", model.nodal_loads.len()),
+        ]
+        .spacing(6),
+    )
+    .padding(10)
+    .width(Fill)
+    .style(theme::inset)
+    .into()
+}
+
+fn nodes(
+    model: &StructuralModel,
+    selection: Option<Selection>,
+    draft: InteractionDraft,
+) -> Element<'_, Message> {
+    model
+        .nodes
+        .iter()
+        .fold(section("Nodes"), |column, node| {
+            let selected = selection == Some(Selection::Node(node.id));
+            let active_draft = draft.member_start == Some(node.id);
+
+            column.push(selectable_row(
+                format!("N{}", node.id),
+                format!("{:.2}, {:.2}", node.x, node.y),
+                selected || active_draft,
+                Selection::Node(node.id),
             ))
-        },
-    );
-
-    let elements = model.elements.iter().fold(
-        column![section_title("Elements")].spacing(4),
-        |column, element| {
-            column.push(row_item(
-                element_label(element),
-                selection == Some(Selection::Element(element_id(element))),
-            ))
-        },
-    );
-
-    let supports = model.supports.iter().fold(
-        column![section_title("Supports")].spacing(4),
-        |column, support| {
-            column.push(text(format!("N{} {}", support.node_id, dof_label(support.dof))).size(14))
-        },
-    );
-
-    let loads = model.nodal_loads.iter().fold(
-        column![section_title("Loads")].spacing(4),
-        |column, load| {
-            column.push(
-                text(format!(
-                    "N{} {} {:+.2e}",
-                    load.node_id,
-                    dof_label(load.dof),
-                    load.magnitude
-                ))
-                .size(14),
-            )
-        },
-    );
-
-    column![panel_header("Model"), nodes, elements, supports, loads,]
-        .spacing(18)
-        .padding(14)
-        .width(Fill)
-        .into()
-}
-
-fn panel_header(label: &str) -> Element<'_, Message> {
-    text(label).size(18).color(theme::TEXT).into()
-}
-
-fn section_title(label: &str) -> Element<'_, Message> {
-    text(label).size(13).color(theme::TEXT_MUTED).into()
-}
-
-fn row_item(label: String, selected: bool) -> Element<'static, Message> {
-    container(text(label).size(14).color(theme::TEXT))
-        .padding([6, 8])
-        .width(Fill)
-        .style(if selected {
-            theme::selected_row
-        } else {
-            theme::neutral_row
         })
         .into()
 }
 
-fn element_id(element: &StructuralElement) -> usize {
-    match element {
-        StructuralElement::Truss2D(element) => element.id,
-        StructuralElement::Truss3D(element) => element.id,
-        StructuralElement::Beam2D(element) => element.id,
-        StructuralElement::Beam3D(element) => element.id,
-        StructuralElement::Frame2D(element) => element.id,
-        StructuralElement::Frame3D(element) => element.id,
-    }
+fn members(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
+    model
+        .elements
+        .iter()
+        .fold(section("Members"), |column, element| {
+            let (id, node_i, node_j) = element_data(element);
+
+            column.push(selectable_row(
+                format!("M{id}"),
+                format!("{}  N{}-N{}", element_kind(element), node_i, node_j),
+                selection == Some(Selection::Element(element_id(element))),
+                Selection::Element(id),
+            ))
+        })
+        .into()
 }
 
-fn element_label(element: &StructuralElement) -> String {
-    match element {
-        StructuralElement::Truss2D(element) => {
-            format!("T{}  N{} - N{}", element.id, element.node_i, element.node_j)
-        }
-        StructuralElement::Truss3D(element) => {
-            format!(
-                "T3{}  N{} - N{}",
-                element.id, element.node_i, element.node_j
-            )
-        }
-        StructuralElement::Beam2D(element) => {
-            format!("B{}  N{} - N{}", element.id, element.node_i, element.node_j)
-        }
-        StructuralElement::Beam3D(element) => {
-            format!(
-                "B3{}  N{} - N{}",
-                element.id, element.node_i, element.node_j
-            )
-        }
-        StructuralElement::Frame2D(element) => {
-            format!("F{}  N{} - N{}", element.id, element.node_i, element.node_j)
-        }
-        StructuralElement::Frame3D(element) => {
-            format!(
-                "F3{}  N{} - N{}",
-                element.id, element.node_i, element.node_j
-            )
-        }
-    }
+fn supports(model: &StructuralModel) -> Element<'_, Message> {
+    model
+        .supports
+        .iter()
+        .fold(section("Supports"), |column, support| {
+            column.push(static_row(
+                format!("N{}", support.node_id),
+                dof_label(support.dof).to_string(),
+            ))
+        })
+        .into()
 }
 
-fn dof_label(dof: Dof) -> &'static str {
-    match dof {
-        Dof::Ux => "Ux",
-        Dof::Uy => "Uy",
-        Dof::Uz => "Uz",
-        Dof::Rx => "Rx",
-        Dof::Ry => "Ry",
-        Dof::Rz => "Rz",
-    }
+fn loads(model: &StructuralModel) -> Element<'_, Message> {
+    model
+        .nodal_loads
+        .iter()
+        .fold(section("Loads"), |column, load| {
+            column.push(static_row(
+                format!("N{}", load.node_id),
+                format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
+            ))
+        })
+        .into()
+}
+
+fn panel_title(label: &str) -> Element<'_, Message> {
+    text(label).size(18).color(theme::TEXT).into()
+}
+
+fn section(label: &str) -> iced::widget::Column<'_, Message> {
+    column![text(label).size(13).color(theme::TEXT_MUTED)]
+        .spacing(4)
+        .width(Fill)
+}
+
+fn metric_row(label: &str, value: usize) -> Element<'_, Message> {
+    row![
+        text(label).size(13).color(theme::TEXT_MUTED).width(Fill),
+        text(value).size(14).color(theme::TEXT),
+    ]
+    .align_y(Alignment::Center)
+    .into()
+}
+
+fn selectable_row(
+    label: String,
+    detail: String,
+    selected: bool,
+    selection: Selection,
+) -> Element<'static, Message> {
+    let content = row![
+        text(label)
+            .size(14)
+            .color(theme::TEXT)
+            .width(Length::Fixed(44.0)),
+        text(detail).size(13).color(theme::TEXT_MUTED).width(Fill),
+    ]
+    .spacing(8)
+    .align_y(Alignment::Center);
+
+    button(container(content).padding([6, 8]).width(Fill))
+        .style(if selected {
+            theme::tool_button_active
+        } else {
+            theme::tool_button
+        })
+        .padding(0)
+        .width(Fill)
+        .on_press(Message::SelectionRequested(Some(selection)))
+        .into()
+}
+
+fn static_row(label: String, detail: String) -> Element<'static, Message> {
+    container(
+        row![
+            text(label)
+                .size(14)
+                .color(theme::TEXT)
+                .width(Length::Fixed(44.0)),
+            text(detail).size(13).color(theme::TEXT_MUTED).width(Fill),
+        ]
+        .spacing(8),
+    )
+    .padding([4, 8])
+    .width(Fill)
+    .style(theme::neutral_row)
+    .into()
 }

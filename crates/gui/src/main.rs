@@ -3,7 +3,6 @@ mod panels;
 mod renderer;
 mod state;
 mod theme;
-mod tools;
 mod viewport;
 
 use app::{BajrangApp, Message};

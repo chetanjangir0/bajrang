@@ -3,18 +3,22 @@ use iced::widget::canvas;
 use iced::{
     Color, Element, Font, Length, Pixels, Point, Rectangle, Renderer, Theme, Vector, alignment,
 };
-use model::{elements::StructuralElement, node::Node};
+use model::node::Node;
 
 use crate::{
-    state::{Selection, StructuralModel},
+    state::{
+        InteractionDraft, Selection, StructuralModel, WorkspaceTool, element_data, element_kind,
+    },
     theme,
-    viewport::{ViewportEvent, ViewportState, ViewportUpdate},
+    viewport::{ViewportEvent, ViewportPress, ViewportState, ViewportUpdate},
 };
 
 #[derive(Debug, Clone, Copy)]
 pub struct ViewportCanvas<'a> {
     model: &'a StructuralModel,
     selection: Option<Selection>,
+    tool: WorkspaceTool,
+    draft: InteractionDraft,
     viewport: ViewportState,
 }
 
@@ -27,11 +31,15 @@ impl<'a> ViewportCanvas<'a> {
     pub fn new(
         model: &'a StructuralModel,
         selection: Option<Selection>,
+        tool: WorkspaceTool,
+        draft: InteractionDraft,
         viewport: ViewportState,
     ) -> Self {
         Self {
             model,
             selection,
+            tool,
+            draft,
             viewport,
         }
     }
@@ -41,31 +49,21 @@ impl<'a> ViewportCanvas<'a> {
     }
 
     fn node_screen_position(&self, node: &Node, bounds: Rectangle) -> Point {
-        let origin = Point::new(
-            bounds.width * 0.5 + self.viewport.pan_x,
-            bounds.height * 0.64 + self.viewport.pan_y,
-        );
-
-        Point::new(
-            origin.x + node.x as f32 * self.viewport.zoom,
-            origin.y - node.y as f32 * self.viewport.zoom,
-        )
+        self.viewport.model_to_screen(node.x, node.y, bounds)
     }
 
     fn hit_test(&self, cursor: Point, bounds: Rectangle) -> Option<Selection> {
-        let node_hit = self.model.nodes.iter().find_map(|node| {
+        if let Some(node) = self.model.nodes.iter().find(|node| {
             let point = self.node_screen_position(node, bounds);
-            (distance(cursor, point) <= 10.0).then_some(Selection::Node(node.id))
-        });
-
-        if node_hit.is_some() {
-            return node_hit;
+            distance(cursor, point) <= 10.0
+        }) {
+            return Some(Selection::Node(node.id));
         }
 
         self.model.elements.iter().find_map(|element| {
             let (id, node_i, node_j) = element_data(element);
-            let ni = self.model.nodes.iter().find(|node| node.id == node_i)?;
-            let nj = self.model.nodes.iter().find(|node| node.id == node_j)?;
+            let ni = self.model.node(node_i)?;
+            let nj = self.model.node(node_j)?;
             let a = self.node_screen_position(ni, bounds);
             let b = self.node_screen_position(nj, bounds);
 
@@ -84,6 +82,18 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<ViewportEvent>> {
+        match event {
+            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
+                state.drag_origin = None;
+                return Some(canvas::Action::capture());
+            }
+            canvas::Event::Mouse(mouse::Event::CursorLeft) => {
+                state.drag_origin = None;
+                return None;
+            }
+            _ => {}
+        }
+
         let Some(position) = cursor.position_in(bounds) else {
             state.drag_origin = None;
             return None;
@@ -92,10 +102,6 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
                 state.drag_origin = Some(position);
-                Some(canvas::Action::capture())
-            }
-            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
-                state.drag_origin = None;
                 Some(canvas::Action::capture())
             }
             canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
@@ -122,16 +128,23 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
                 Some(
                     canvas::Action::publish(ViewportEvent::Changed(ViewportUpdate::Zoom {
                         factor,
-                        pivot_x: position.x,
-                        pivot_y: position.y,
+                        pivot: position,
                     }))
                     .and_capture(),
                 )
             }
-            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => Some(
-                canvas::Action::publish(ViewportEvent::Selected(self.hit_test(position, bounds)))
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                let (model_x, model_y) = self.viewport.screen_to_model(position, bounds);
+
+                Some(
+                    canvas::Action::publish(ViewportEvent::Pressed(ViewportPress {
+                        target: self.hit_test(position, bounds),
+                        model_x,
+                        model_y,
+                    }))
                     .and_capture(),
-            ),
+                )
+            }
             _ => None,
         }
     }
@@ -146,27 +159,13 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
     ) -> Vec<canvas::Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
 
-        draw_grid(&mut frame, bounds);
+        draw_grid(&mut frame, bounds, self.viewport);
         draw_axes(&mut frame, bounds, self.viewport);
-        self.draw_elements(&mut frame, bounds);
+        self.draw_members(&mut frame, bounds);
         self.draw_loads(&mut frame, bounds);
         self.draw_supports(&mut frame, bounds);
         self.draw_nodes(&mut frame, bounds);
-
-        if self.model.nodes.is_empty() {
-            frame.fill_text(canvas::Text {
-                content: "Start by adding nodes to define the structure.".to_string(),
-                position: Point::new(bounds.width * 0.5, bounds.height * 0.5),
-                color: theme::TEXT_MUTED,
-                size: Pixels::from(16.0),
-                line_height: iced::widget::text::LineHeight::default(),
-                font: Font::DEFAULT,
-                align_x: alignment::Horizontal::Center.into(),
-                align_y: alignment::Vertical::Center,
-                shaping: iced::widget::text::Shaping::Basic,
-                max_width: bounds.width - 48.0,
-            });
-        }
+        self.draw_empty_state(&mut frame, bounds);
 
         vec![frame.into_geometry()]
     }
@@ -182,7 +181,10 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
         }
 
         if cursor.position_in(bounds).is_some() {
-            mouse::Interaction::Pointer
+            match self.tool {
+                WorkspaceTool::Select => mouse::Interaction::Pointer,
+                _ => mouse::Interaction::Crosshair,
+            }
         } else {
             mouse::Interaction::default()
         }
@@ -190,28 +192,27 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
 }
 
 impl ViewportCanvas<'_> {
-    fn draw_elements(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+    fn draw_members(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
         for element in &self.model.elements {
             let (id, node_i, node_j) = element_data(element);
-            let Some(ni) = self.model.nodes.iter().find(|node| node.id == node_i) else {
+            let Some(ni) = self.model.node(node_i) else {
                 continue;
             };
-            let Some(nj) = self.model.nodes.iter().find(|node| node.id == node_j) else {
+            let Some(nj) = self.model.node(node_j) else {
                 continue;
             };
 
             let a = self.node_screen_position(ni, bounds);
             let b = self.node_screen_position(nj, bounds);
             let selected = self.selection == Some(Selection::Element(id));
-            let path = canvas::Path::line(a, b);
 
             frame.stroke(
-                &path,
+                &canvas::Path::line(a, b),
                 canvas::Stroke {
                     style: canvas::Style::Solid(if selected {
                         theme::ACCENT
                     } else {
-                        Color::from_rgb(0.118, 0.161, 0.216)
+                        Color::from_rgb(0.122, 0.149, 0.176)
                     }),
                     width: if selected { 4.0 } else { 2.5 },
                     ..canvas::Stroke::default()
@@ -219,18 +220,14 @@ impl ViewportCanvas<'_> {
             );
 
             let midpoint = Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-            frame.fill_text(canvas::Text {
-                content: id.to_string(),
-                position: midpoint + Vector::new(0.0, -10.0),
-                color: theme::TEXT_MUTED,
-                size: Pixels::from(12.0),
-                line_height: iced::widget::text::LineHeight::default(),
-                font: Font::DEFAULT,
-                align_x: alignment::Horizontal::Center.into(),
-                align_y: alignment::Vertical::Center,
-                shaping: iced::widget::text::Shaping::Basic,
-                max_width: 48.0,
-            });
+            label(
+                frame,
+                format!("{} {id}", element_kind(element)),
+                midpoint + Vector::new(0.0, -12.0),
+                theme::TEXT_MUTED,
+                11.0,
+                86.0,
+            );
         }
     }
 
@@ -238,40 +235,31 @@ impl ViewportCanvas<'_> {
         for node in &self.model.nodes {
             let point = self.node_screen_position(node, bounds);
             let selected = self.selection == Some(Selection::Node(node.id));
-            let marker = canvas::Path::circle(point, if selected { 7.0 } else { 5.0 });
+            let draft = self.draft.member_start == Some(node.id);
 
             frame.fill(
-                &marker,
-                if selected {
+                &canvas::Path::circle(point, if selected || draft { 7.0 } else { 5.0 }),
+                if selected || draft {
                     theme::ACCENT
                 } else {
-                    Color::from_rgb(0.050, 0.090, 0.130)
+                    Color::from_rgb(0.059, 0.086, 0.110)
                 },
             );
 
-            frame.fill_text(canvas::Text {
-                content: format!("N{}", node.id),
-                position: point + Vector::new(0.0, 16.0),
-                color: theme::TEXT,
-                size: Pixels::from(12.0),
-                line_height: iced::widget::text::LineHeight::default(),
-                font: Font::DEFAULT,
-                align_x: alignment::Horizontal::Center.into(),
-                align_y: alignment::Vertical::Center,
-                shaping: iced::widget::text::Shaping::Basic,
-                max_width: 56.0,
-            });
+            label(
+                frame,
+                format!("N{}", node.id),
+                point + Vector::new(0.0, 17.0),
+                theme::TEXT,
+                12.0,
+                44.0,
+            );
         }
     }
 
     fn draw_supports(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
         for support in &self.model.supports {
-            let Some(node) = self
-                .model
-                .nodes
-                .iter()
-                .find(|node| node.id == support.node_id)
-            else {
+            let Some(node) = self.model.node(support.node_id) else {
                 continue;
             };
 
@@ -286,7 +274,7 @@ impl ViewportCanvas<'_> {
             frame.stroke(
                 &path,
                 canvas::Stroke {
-                    style: canvas::Style::Solid(theme::SUCCESS),
+                    style: canvas::Style::Solid(theme::SUPPORT),
                     width: 1.5,
                     ..canvas::Stroke::default()
                 },
@@ -296,20 +284,19 @@ impl ViewportCanvas<'_> {
 
     fn draw_loads(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
         for load in &self.model.nodal_loads {
-            let Some(node) = self.model.nodes.iter().find(|node| node.id == load.node_id) else {
+            let Some(node) = self.model.node(load.node_id) else {
                 continue;
             };
 
             let point = self.node_screen_position(node, bounds);
             let direction = if load.magnitude < 0.0 { 1.0 } else { -1.0 };
-            let start = point + Vector::new(0.0, -direction * 42.0);
-            let end = point + Vector::new(0.0, -direction * 12.0);
+            let start = point + Vector::new(0.0, -direction * 44.0);
+            let end = point + Vector::new(0.0, -direction * 13.0);
 
-            let shaft = canvas::Path::line(start, end);
             frame.stroke(
-                &shaft,
+                &canvas::Path::line(start, end),
                 canvas::Stroke {
-                    style: canvas::Style::Solid(theme::DANGER),
+                    style: canvas::Style::Solid(theme::LOAD),
                     width: 2.0,
                     ..canvas::Stroke::default()
                 },
@@ -321,16 +308,33 @@ impl ViewportCanvas<'_> {
                 builder.line_to(end + Vector::new(5.0, -direction * 8.0));
                 builder.close();
             });
-            frame.fill(&head, theme::DANGER);
+
+            frame.fill(&head, theme::LOAD);
         }
+    }
+
+    fn draw_empty_state(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if !self.model.nodes.is_empty() {
+            return;
+        }
+
+        label(
+            frame,
+            "Empty model".to_string(),
+            Point::new(bounds.width * 0.5, bounds.height * 0.5),
+            theme::TEXT_MUTED,
+            16.0,
+            bounds.width - 48.0,
+        );
     }
 }
 
-fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle) {
-    let spacing = 48.0;
-    let color = Color::from_rgba(0.690, 0.733, 0.773, 0.30);
+fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportState) {
+    let spacing = viewport.zoom.max(24.0);
+    let origin = viewport.origin(bounds);
+    let color = Color::from_rgba(0.620, 0.675, 0.725, 0.32);
 
-    let mut x = 0.0;
+    let mut x = origin.x.rem_euclid(spacing);
     while x <= bounds.width {
         frame.stroke(
             &canvas::Path::line(Point::new(x, 0.0), Point::new(x, bounds.height)),
@@ -343,7 +347,7 @@ fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle) {
         x += spacing;
     }
 
-    let mut y = 0.0;
+    let mut y = origin.y.rem_euclid(spacing);
     while y <= bounds.height {
         frame.stroke(
             &canvas::Path::line(Point::new(0.0, y), Point::new(bounds.width, y)),
@@ -358,10 +362,8 @@ fn draw_grid(frame: &mut canvas::Frame, bounds: Rectangle) {
 }
 
 fn draw_axes(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportState) {
-    let origin = Point::new(
-        bounds.width * 0.5 + viewport.pan_x,
-        bounds.height * 0.64 + viewport.pan_y,
-    );
+    let origin = viewport.origin(bounds);
+    let color = Color::from_rgba(0.180, 0.220, 0.260, 0.45);
 
     frame.stroke(
         &canvas::Path::line(
@@ -369,7 +371,7 @@ fn draw_axes(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportSta
             Point::new(bounds.width, origin.y),
         ),
         canvas::Stroke {
-            style: canvas::Style::Solid(Color::from_rgba(0.200, 0.260, 0.320, 0.34)),
+            style: canvas::Style::Solid(color),
             width: 1.0,
             ..canvas::Stroke::default()
         },
@@ -381,22 +383,33 @@ fn draw_axes(frame: &mut canvas::Frame, bounds: Rectangle, viewport: ViewportSta
             Point::new(origin.x, bounds.height),
         ),
         canvas::Stroke {
-            style: canvas::Style::Solid(Color::from_rgba(0.200, 0.260, 0.320, 0.34)),
+            style: canvas::Style::Solid(color),
             width: 1.0,
             ..canvas::Stroke::default()
         },
     );
 }
 
-fn element_data(element: &StructuralElement) -> (usize, usize, usize) {
-    match element {
-        StructuralElement::Truss2D(element) => (element.id, element.node_i, element.node_j),
-        StructuralElement::Truss3D(element) => (element.id, element.node_i, element.node_j),
-        StructuralElement::Beam2D(element) => (element.id, element.node_i, element.node_j),
-        StructuralElement::Beam3D(element) => (element.id, element.node_i, element.node_j),
-        StructuralElement::Frame2D(element) => (element.id, element.node_i, element.node_j),
-        StructuralElement::Frame3D(element) => (element.id, element.node_i, element.node_j),
-    }
+fn label(
+    frame: &mut canvas::Frame,
+    content: String,
+    position: Point,
+    color: Color,
+    size: f32,
+    max_width: f32,
+) {
+    frame.fill_text(canvas::Text {
+        content,
+        position,
+        color,
+        size: Pixels::from(size),
+        line_height: iced::widget::text::LineHeight::default(),
+        font: Font::DEFAULT,
+        align_x: alignment::Horizontal::Center.into(),
+        align_y: alignment::Vertical::Center,
+        shaping: iced::widget::text::Shaping::Basic,
+        max_width,
+    });
 }
 
 fn distance(a: Point, b: Point) -> f32 {
