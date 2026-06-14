@@ -24,7 +24,7 @@ pub struct ViewportCanvas<'a> {
 
 #[derive(Debug, Default)]
 pub struct CanvasState {
-    drag_origin: Option<Point>,
+    pan_origin: Option<Point>,
 }
 
 impl<'a> ViewportCanvas<'a> {
@@ -83,29 +83,34 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<ViewportEvent>> {
         match event {
-            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Middle)) => {
-                state.drag_origin = None;
+            canvas::Event::Mouse(mouse::Event::ButtonReleased(_)) => {
+                state.pan_origin = None;
                 return Some(canvas::Action::capture());
             }
             canvas::Event::Mouse(mouse::Event::CursorLeft) => {
-                state.drag_origin = None;
+                state.pan_origin = None;
+                return None;
+            }
+            canvas::Event::Mouse(mouse::Event::CursorEntered) => {
+                state.pan_origin = None;
                 return None;
             }
             _ => {}
         }
 
         let Some(position) = cursor.position_in(bounds) else {
-            state.drag_origin = None;
+            state.pan_origin = None;
             return None;
         };
 
         match event {
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Middle)) => {
-                state.drag_origin = Some(position);
+                state.pan_origin = Some(position);
                 Some(canvas::Action::capture())
             }
             canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
-                if let Some(origin) = state.drag_origin.replace(position) {
+                if let Some(origin) = state.pan_origin {
+                    state.pan_origin = Some(position);
                     let delta = position - origin;
                     return Some(
                         canvas::Action::publish(ViewportEvent::Changed(ViewportUpdate::Pan {
@@ -134,6 +139,7 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
                 )
             }
             canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                state.pan_origin = None;
                 let (model_x, model_y) = self.viewport.screen_to_model(position, bounds);
 
                 Some(
@@ -144,6 +150,10 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
                     }))
                     .and_capture(),
                 )
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(_)) => {
+                state.pan_origin = None;
+                None
             }
             _ => None,
         }
@@ -172,17 +182,13 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
 
     fn mouse_interaction(
         &self,
-        state: &Self::State,
+        _state: &Self::State,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if state.drag_origin.is_some() {
-            return mouse::Interaction::Grabbing;
-        }
-
         if cursor.position_in(bounds).is_some() {
             match self.tool {
-                WorkspaceTool::Select => mouse::Interaction::Pointer,
+                WorkspaceTool::Select => mouse::Interaction::Idle,
                 _ => mouse::Interaction::Crosshair,
             }
         } else {
