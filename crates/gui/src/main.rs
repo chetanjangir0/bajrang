@@ -1,4 +1,5 @@
 mod app;
+mod expression;
 mod panels;
 mod renderer;
 mod state;

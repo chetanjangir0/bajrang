@@ -4,7 +4,7 @@ use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Task};
 
 use crate::{
-    panels,
+    expression, panels,
     state::{
         AnalysisState, CoordinateAxis, InteractionDraft, Selection, StructuralModel, WorkspaceTool,
         run_basic_analysis,
@@ -312,12 +312,15 @@ impl BajrangApp {
             return;
         }
 
-        let Ok(coordinate) = trimmed.parse::<f64>() else {
-            self.set_status(
-                StatusLevel::Warning,
-                format!("Node {node_id} {} must be a number", axis.label()),
-            );
-            return;
+        let coordinate = match expression::evaluate(trimmed) {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(
+                    StatusLevel::Warning,
+                    format!("Node {node_id} {}: {error}", axis.label()),
+                );
+                return;
+            }
         };
 
         match self.model.update_node_coordinate(node_id, axis, coordinate) {
