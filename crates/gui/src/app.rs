@@ -108,6 +108,7 @@ impl BajrangApp {
         let sidebar = container(scrollable(panels::model_tree::view(
             &self.model,
             self.selection,
+            self.tool,
             self.draft,
         )))
         .width(292)

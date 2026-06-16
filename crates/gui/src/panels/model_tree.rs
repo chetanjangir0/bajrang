@@ -4,8 +4,8 @@ use iced::{Alignment, Element, Fill, Length};
 use crate::{
     app::Message,
     state::{
-        InteractionDraft, Selection, StructuralModel, dof_label, element_data, element_id,
-        element_kind,
+        InteractionDraft, Selection, StructuralModel, WorkspaceTool, dof_label, element_data,
+        element_id, element_kind,
     },
     theme,
 };
@@ -13,36 +13,119 @@ use crate::{
 pub fn view(
     model: &StructuralModel,
     selection: Option<Selection>,
+    tool: WorkspaceTool,
     draft: InteractionDraft,
 ) -> Element<'_, Message> {
-    column![
-        panel_title("Model"),
-        summary(model),
-        nodes(model, selection, draft),
-        members(model, selection),
-        supports(model),
-        loads(model),
-    ]
-    .spacing(16)
-    .padding(14)
-    .width(Fill)
-    .into()
+    let filter = ModelTreeFilter::for_tool(tool);
+    let mut tree = column![panel_title(filter.title()), summary(model, filter),]
+        .spacing(16)
+        .padding(14)
+        .width(Fill);
+
+    if filter.show_nodes {
+        tree = tree.push(nodes(model, selection, draft));
+    }
+
+    if filter.show_members {
+        tree = tree.push(members(model, selection));
+    }
+
+    if filter.show_supports {
+        tree = tree.push(supports(model));
+    }
+
+    if filter.show_loads {
+        tree = tree.push(loads(model));
+    }
+
+    tree.into()
 }
 
-fn summary(model: &StructuralModel) -> Element<'_, Message> {
-    container(
-        column![
-            metric_row("Nodes", model.nodes.len()),
-            metric_row("Members", model.elements.len()),
-            metric_row("Supports", model.supports.len()),
-            metric_row("Loads", model.nodal_loads.len()),
-        ]
-        .spacing(6),
-    )
-    .padding(10)
-    .width(Fill)
-    .style(theme::inset)
-    .into()
+#[derive(Debug, Clone, Copy)]
+struct ModelTreeFilter {
+    tool: WorkspaceTool,
+    show_nodes: bool,
+    show_members: bool,
+    show_supports: bool,
+    show_loads: bool,
+}
+
+impl ModelTreeFilter {
+    fn for_tool(tool: WorkspaceTool) -> Self {
+        match tool {
+            WorkspaceTool::Select => Self {
+                tool,
+                show_nodes: true,
+                show_members: true,
+                show_supports: true,
+                show_loads: true,
+            },
+            WorkspaceTool::AddNode => Self {
+                tool,
+                show_nodes: true,
+                show_members: false,
+                show_supports: false,
+                show_loads: false,
+            },
+            WorkspaceTool::DrawMember => Self {
+                tool,
+                show_nodes: false,
+                show_members: true,
+                show_supports: false,
+                show_loads: false,
+            },
+            WorkspaceTool::AssignLoad => Self {
+                tool,
+                show_nodes: false,
+                show_members: false,
+                show_supports: false,
+                show_loads: true,
+            },
+            WorkspaceTool::AssignSupport => Self {
+                tool,
+                show_nodes: false,
+                show_members: false,
+                show_supports: true,
+                show_loads: false,
+            },
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self.tool {
+            WorkspaceTool::Select => "Model",
+            WorkspaceTool::AddNode => "Nodes",
+            WorkspaceTool::DrawMember => "Members",
+            WorkspaceTool::AssignLoad => "Loads",
+            WorkspaceTool::AssignSupport => "Supports",
+        }
+    }
+}
+
+fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Message> {
+    let mut metrics = column![].spacing(6);
+
+    if filter.show_nodes {
+        metrics = metrics.push(metric_row("Nodes", model.nodes.len()));
+    }
+
+    if filter.show_members {
+        metrics = metrics.push(metric_row("Members", model.elements.len()));
+    }
+
+    if filter.show_supports {
+        metrics = metrics.push(metric_row("Supports", model.supports.len()));
+    }
+
+    if filter.show_loads {
+        metrics = metrics.push(metric_row("Loads", model.nodal_loads.len()));
+    }
+
+    container(metrics)
+        .padding(10)
+        .width(Fill)
+        .style(theme::inset)
+        .into()
 }
 
 fn nodes(
@@ -50,6 +133,10 @@ fn nodes(
     selection: Option<Selection>,
     draft: InteractionDraft,
 ) -> Element<'_, Message> {
+    if model.nodes.is_empty() {
+        return empty_section("Nodes", "No nodes in this model");
+    }
+
     model
         .nodes
         .iter()
@@ -68,6 +155,10 @@ fn nodes(
 }
 
 fn members(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
+    if model.elements.is_empty() {
+        return empty_section("Members", "No members in this model");
+    }
+
     model
         .elements
         .iter()
@@ -85,6 +176,10 @@ fn members(model: &StructuralModel, selection: Option<Selection>) -> Element<'_,
 }
 
 fn supports(model: &StructuralModel) -> Element<'_, Message> {
+    if model.supports.is_empty() {
+        return empty_section("Supports", "No supports assigned");
+    }
+
     model
         .supports
         .iter()
@@ -98,6 +193,10 @@ fn supports(model: &StructuralModel) -> Element<'_, Message> {
 }
 
 fn loads(model: &StructuralModel) -> Element<'_, Message> {
+    if model.nodal_loads.is_empty() {
+        return empty_section("Loads", "No nodal loads assigned");
+    }
+
     model
         .nodal_loads
         .iter()
@@ -118,6 +217,17 @@ fn section(label: &str) -> iced::widget::Column<'_, Message> {
     column![text(label).size(13).color(theme::TEXT_MUTED)]
         .spacing(4)
         .width(Fill)
+}
+
+fn empty_section(title: &'static str, message: &'static str) -> Element<'static, Message> {
+    section(title)
+        .push(
+            container(text(message).size(13).color(theme::TEXT_MUTED).width(Fill))
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+        )
+        .into()
 }
 
 fn metric_row(label: &str, value: usize) -> Element<'_, Message> {
