@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Task};
 
@@ -20,16 +22,21 @@ pub struct BajrangApp {
     pub viewport: ViewportState,
     pub analysis: AnalysisState,
     pub status: StatusLine,
+    pub node_coordinate_edits: BTreeMap<(usize, CoordinateAxis), String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     ToolSelected(WorkspaceTool),
     SelectionRequested(Option<Selection>),
-    NodeCoordinateEdited {
+    NodeCoordinateDraftChanged {
         node_id: usize,
         axis: CoordinateAxis,
         value: String,
+    },
+    NodeCoordinateSubmitted {
+        node_id: usize,
+        axis: CoordinateAxis,
     },
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
@@ -63,6 +70,7 @@ impl Default for BajrangApp {
             viewport: ViewportState::default(),
             analysis: AnalysisState::Idle,
             status: StatusLine::neutral("Ready"),
+            node_coordinate_edits: BTreeMap::new(),
         }
     }
 }
@@ -73,6 +81,7 @@ impl BajrangApp {
             Message::ToolSelected(tool) => {
                 self.tool = tool;
                 self.draft.clear();
+                self.node_coordinate_edits.clear();
                 self.set_status(
                     StatusLevel::Neutral,
                     format!("{} tool active", tool.label()),
@@ -87,11 +96,17 @@ impl BajrangApp {
                         .map_or_else(|| "Selection cleared".to_string(), Selection::label),
                 );
             }
-            Message::NodeCoordinateEdited {
+            Message::NodeCoordinateDraftChanged {
                 node_id,
                 axis,
                 value,
-            } => self.handle_node_coordinate_edit(node_id, axis, value),
+            } => {
+                self.node_coordinate_edits.insert((node_id, axis), value);
+                self.selection = Some(Selection::Node(node_id));
+            }
+            Message::NodeCoordinateSubmitted { node_id, axis } => {
+                self.handle_node_coordinate_submit(node_id, axis);
+            }
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
@@ -103,6 +118,7 @@ impl BajrangApp {
                 self.model = StructuralModel::empty();
                 self.selection = None;
                 self.draft.clear();
+                self.node_coordinate_edits.clear();
                 self.analysis = AnalysisState::Idle;
                 self.set_status(StatusLevel::Neutral, "New model");
             }
@@ -120,6 +136,7 @@ impl BajrangApp {
             self.selection,
             self.tool,
             self.draft,
+            &self.node_coordinate_edits,
         )))
         .width(292)
         .height(Fill)
@@ -269,7 +286,22 @@ impl BajrangApp {
         }
     }
 
-    fn handle_node_coordinate_edit(&mut self, node_id: usize, axis: CoordinateAxis, value: String) {
+    fn handle_node_coordinate_submit(&mut self, node_id: usize, axis: CoordinateAxis) {
+        let key = (node_id, axis);
+        let value = self.node_coordinate_edits.get(&key).cloned().or_else(|| {
+            self.model
+                .node(node_id)
+                .map(|node| coordinate_text(node, axis))
+        });
+
+        let Some(value) = value else {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Node {node_id} does not exist."),
+            );
+            return;
+        };
+
         let trimmed = value.trim();
 
         if trimmed.is_empty() {
@@ -290,6 +322,7 @@ impl BajrangApp {
 
         match self.model.update_node_coordinate(node_id, axis, coordinate) {
             Ok(()) => {
+                self.node_coordinate_edits.remove(&key);
                 self.selection = Some(Selection::Node(node_id));
                 self.draft.clear();
                 self.analysis = AnalysisState::Idle;
@@ -383,6 +416,15 @@ impl BajrangApp {
             level,
         };
     }
+}
+
+fn coordinate_text(node: &model::node::Node, axis: CoordinateAxis) -> String {
+    match axis {
+        CoordinateAxis::X => node.x,
+        CoordinateAxis::Y => node.y,
+        CoordinateAxis::Z => node.z,
+    }
+    .to_string()
 }
 
 impl StatusLine {

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Alignment, Element, Fill, Length};
 
@@ -10,12 +12,13 @@ use crate::{
     theme,
 };
 
-pub fn view(
-    model: &StructuralModel,
+pub fn view<'a>(
+    model: &'a StructuralModel,
     selection: Option<Selection>,
     tool: WorkspaceTool,
     draft: InteractionDraft,
-) -> Element<'_, Message> {
+    node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
+) -> Element<'a, Message> {
     let filter = ModelTreeFilter::for_tool(tool);
     let mut tree = column![panel_title(filter.title()), summary(model, filter),]
         .spacing(16)
@@ -23,7 +26,13 @@ pub fn view(
         .width(Fill);
 
     if filter.show_nodes {
-        tree = tree.push(nodes(model, selection, draft, filter.edit_nodes()));
+        tree = tree.push(nodes(
+            model,
+            selection,
+            draft,
+            filter.edit_nodes(),
+            node_coordinate_edits,
+        ));
     }
 
     if filter.show_members {
@@ -132,12 +141,13 @@ fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Mess
         .into()
 }
 
-fn nodes(
-    model: &StructuralModel,
+fn nodes<'a>(
+    model: &'a StructuralModel,
     selection: Option<Selection>,
     draft: InteractionDraft,
     editable: bool,
-) -> Element<'_, Message> {
+    node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
+) -> Element<'a, Message> {
     if model.nodes.is_empty() {
         return empty_section("Nodes", "No nodes in this model");
     }
@@ -156,6 +166,7 @@ fn nodes(
                     node.y,
                     node.z,
                     selected || active_draft,
+                    node_coordinate_edits,
                 ))
             } else {
                 column.push(selectable_row(
@@ -288,6 +299,7 @@ fn editable_node_row(
     y: f64,
     z: f64,
     selected: bool,
+    node_coordinate_edits: &BTreeMap<(usize, CoordinateAxis), String>,
 ) -> Element<'static, Message> {
     let content = column![
         button(
@@ -313,9 +325,9 @@ fn editable_node_row(
         .width(Fill)
         .on_press(Message::SelectionRequested(Some(Selection::Node(node_id)))),
         row![
-            coordinate_input(node_id, CoordinateAxis::X, x),
-            coordinate_input(node_id, CoordinateAxis::Y, y),
-            coordinate_input(node_id, CoordinateAxis::Z, z),
+            coordinate_input(node_id, CoordinateAxis::X, x, node_coordinate_edits),
+            coordinate_input(node_id, CoordinateAxis::Y, y, node_coordinate_edits),
+            coordinate_input(node_id, CoordinateAxis::Z, z, node_coordinate_edits),
         ]
         .spacing(6)
         .width(Fill),
@@ -329,15 +341,24 @@ fn editable_node_row(
         .into()
 }
 
-fn coordinate_input(node_id: usize, axis: CoordinateAxis, value: f64) -> Element<'static, Message> {
-    let value = coordinate_value(value);
+fn coordinate_input(
+    node_id: usize,
+    axis: CoordinateAxis,
+    value: f64,
+    node_coordinate_edits: &BTreeMap<(usize, CoordinateAxis), String>,
+) -> Element<'static, Message> {
+    let value = node_coordinate_edits
+        .get(&(node_id, axis))
+        .cloned()
+        .unwrap_or_else(|| coordinate_value(value));
 
     text_input(axis.label(), &value)
-        .on_input(move |value| Message::NodeCoordinateEdited {
+        .on_input(move |value| Message::NodeCoordinateDraftChanged {
             node_id,
             axis,
             value,
         })
+        .on_submit(Message::NodeCoordinateSubmitted { node_id, axis })
         .padding([4, 6])
         .size(13)
         .width(Length::Fill)
