@@ -1,4 +1,4 @@
-use iced::widget::{button, container};
+use iced::widget::{button, container, text_input};
 use iced::{Background, Border, Color, Shadow, Theme};
 
 use crate::app::StatusLevel;
@@ -162,5 +162,27 @@ pub fn tool_button_active(_theme: &Theme, status: button::Status) -> button::Sty
         },
         shadow: Shadow::default(),
         snap: true,
+    }
+}
+
+pub fn compact_input(_theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let border_color = match status {
+        text_input::Status::Active => BORDER,
+        text_input::Status::Hovered => TEXT_MUTED,
+        text_input::Status::Focused { .. } => ACCENT,
+        text_input::Status::Disabled => SURFACE_MUTED,
+    };
+
+    text_input::Style {
+        background: Background::Color(VIEWPORT_BACKGROUND),
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: 3.0.into(),
+        },
+        icon: TEXT_MUTED,
+        placeholder: TEXT_MUTED,
+        value: TEXT,
+        selection: ACCENT_SOFT,
     }
 }

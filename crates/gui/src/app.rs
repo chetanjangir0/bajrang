@@ -4,7 +4,7 @@ use iced::{Alignment, Element, Fill, Length, Task};
 use crate::{
     panels,
     state::{
-        AnalysisState, InteractionDraft, Selection, StructuralModel, WorkspaceTool,
+        AnalysisState, CoordinateAxis, InteractionDraft, Selection, StructuralModel, WorkspaceTool,
         run_basic_analysis,
     },
     theme,
@@ -26,6 +26,11 @@ pub struct BajrangApp {
 pub enum Message {
     ToolSelected(WorkspaceTool),
     SelectionRequested(Option<Selection>),
+    NodeCoordinateEdited {
+        node_id: usize,
+        axis: CoordinateAxis,
+        value: String,
+    },
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
     SolveRequested,
@@ -82,6 +87,11 @@ impl BajrangApp {
                         .map_or_else(|| "Selection cleared".to_string(), Selection::label),
                 );
             }
+            Message::NodeCoordinateEdited {
+                node_id,
+                axis,
+                value,
+            } => self.handle_node_coordinate_edit(node_id, axis, value),
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
@@ -256,6 +266,39 @@ impl BajrangApp {
             WorkspaceTool::DrawMember => self.handle_member_press(press.target),
             WorkspaceTool::AssignLoad => self.handle_load_press(press.target),
             WorkspaceTool::AssignSupport => self.handle_support_press(press.target),
+        }
+    }
+
+    fn handle_node_coordinate_edit(&mut self, node_id: usize, axis: CoordinateAxis, value: String) {
+        let trimmed = value.trim();
+
+        if trimmed.is_empty() {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Enter a value for node {node_id} {}", axis.label()),
+            );
+            return;
+        }
+
+        let Ok(coordinate) = trimmed.parse::<f64>() else {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Node {node_id} {} must be a number", axis.label()),
+            );
+            return;
+        };
+
+        match self.model.update_node_coordinate(node_id, axis, coordinate) {
+            Ok(()) => {
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Node {node_id} {} set to {coordinate:.3}", axis.label()),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
         }
     }
 

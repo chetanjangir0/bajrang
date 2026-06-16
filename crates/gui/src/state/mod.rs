@@ -81,6 +81,25 @@ impl StructuralModel {
         id
     }
 
+    pub fn update_node_coordinate(
+        &mut self,
+        node_id: usize,
+        axis: CoordinateAxis,
+        value: f64,
+    ) -> Result<(), String> {
+        let Some(node) = self.nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Err(format!("Node {node_id} does not exist."));
+        };
+
+        match axis {
+            CoordinateAxis::X => node.x = value,
+            CoordinateAxis::Y => node.y = value,
+            CoordinateAxis::Z => node.z = value,
+        }
+
+        Ok(())
+    }
+
     pub fn add_frame_member(&mut self, node_i: usize, node_j: usize) -> Result<usize, String> {
         if node_i == node_j {
             return Err("Member endpoints must be different nodes.".to_string());
@@ -208,6 +227,23 @@ impl WorkspaceTool {
             Self::DrawMember => "M",
             Self::AssignLoad => "F",
             Self::AssignSupport => "P",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordinateAxis {
+    X,
+    Y,
+    Z,
+}
+
+impl CoordinateAxis {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
         }
     }
 }

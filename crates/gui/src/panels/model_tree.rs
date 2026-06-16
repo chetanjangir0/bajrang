@@ -1,11 +1,11 @@
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Alignment, Element, Fill, Length};
 
 use crate::{
     app::Message,
     state::{
-        InteractionDraft, Selection, StructuralModel, WorkspaceTool, dof_label, element_data,
-        element_id, element_kind,
+        CoordinateAxis, InteractionDraft, Selection, StructuralModel, WorkspaceTool, dof_label,
+        element_data, element_id, element_kind,
     },
     theme,
 };
@@ -23,7 +23,7 @@ pub fn view(
         .width(Fill);
 
     if filter.show_nodes {
-        tree = tree.push(nodes(model, selection, draft));
+        tree = tree.push(nodes(model, selection, draft, filter.edit_nodes()));
     }
 
     if filter.show_members {
@@ -100,6 +100,10 @@ impl ModelTreeFilter {
             WorkspaceTool::AssignSupport => "Supports",
         }
     }
+
+    fn edit_nodes(self) -> bool {
+        self.tool == WorkspaceTool::AddNode
+    }
 }
 
 fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Message> {
@@ -132,6 +136,7 @@ fn nodes(
     model: &StructuralModel,
     selection: Option<Selection>,
     draft: InteractionDraft,
+    editable: bool,
 ) -> Element<'_, Message> {
     if model.nodes.is_empty() {
         return empty_section("Nodes", "No nodes in this model");
@@ -144,12 +149,22 @@ fn nodes(
             let selected = selection == Some(Selection::Node(node.id));
             let active_draft = draft.member_start == Some(node.id);
 
-            column.push(selectable_row(
-                format!("N{}", node.id),
-                format!("{:.2}, {:.2}", node.x, node.y),
-                selected || active_draft,
-                Selection::Node(node.id),
-            ))
+            if editable {
+                column.push(editable_node_row(
+                    node.id,
+                    node.x,
+                    node.y,
+                    node.z,
+                    selected || active_draft,
+                ))
+            } else {
+                column.push(selectable_row(
+                    format!("N{}", node.id),
+                    format!("{:.2}, {:.2}", node.x, node.y),
+                    selected || active_draft,
+                    Selection::Node(node.id),
+                ))
+            }
         })
         .into()
 }
@@ -265,6 +280,80 @@ fn selectable_row(
         .width(Fill)
         .on_press(Message::SelectionRequested(Some(selection)))
         .into()
+}
+
+fn editable_node_row(
+    node_id: usize,
+    x: f64,
+    y: f64,
+    z: f64,
+    selected: bool,
+) -> Element<'static, Message> {
+    let content = column![
+        button(
+            row![
+                text(format!("N{node_id}"))
+                    .size(14)
+                    .color(theme::TEXT)
+                    .width(Length::Fixed(44.0)),
+                text("Coordinates")
+                    .size(13)
+                    .color(theme::TEXT_MUTED)
+                    .width(Fill),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .style(if selected {
+            theme::tool_button_active
+        } else {
+            theme::tool_button
+        })
+        .padding([5, 8])
+        .width(Fill)
+        .on_press(Message::SelectionRequested(Some(Selection::Node(node_id)))),
+        row![
+            coordinate_input(node_id, CoordinateAxis::X, x),
+            coordinate_input(node_id, CoordinateAxis::Y, y),
+            coordinate_input(node_id, CoordinateAxis::Z, z),
+        ]
+        .spacing(6)
+        .width(Fill),
+    ]
+    .spacing(6);
+
+    container(content)
+        .padding([6, 8])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
+fn coordinate_input(node_id: usize, axis: CoordinateAxis, value: f64) -> Element<'static, Message> {
+    let value = coordinate_value(value);
+
+    text_input(axis.label(), &value)
+        .on_input(move |value| Message::NodeCoordinateEdited {
+            node_id,
+            axis,
+            value,
+        })
+        .padding([4, 6])
+        .size(13)
+        .width(Length::Fill)
+        .style(theme::compact_input)
+        .into()
+}
+
+fn coordinate_value(value: f64) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else {
+        format!("{value:.3}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
 }
 
 fn static_row(label: String, detail: String) -> Element<'static, Message> {
