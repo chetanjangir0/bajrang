@@ -14,6 +14,7 @@ fn main() -> iced::Result {
         .title("Bajrang Structural Analysis")
         .window_size(Size::new(1440.0, 900.0))
         .theme(theme)
+        .subscription(subscription)
         .run()
 }
 
@@ -23,6 +24,10 @@ fn update(app: &mut BajrangApp, message: Message) -> Task<Message> {
 
 fn view(app: &BajrangApp) -> iced::Element<'_, Message> {
     app.view()
+}
+
+fn subscription(app: &BajrangApp) -> iced::Subscription<Message> {
+    app.subscription()
 }
 
 fn theme(_app: &BajrangApp) -> iced::Theme {

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
+use iced::keyboard::{self, Key, key};
 use iced::widget::{button, column, container, row, scrollable, text};
-use iced::{Alignment, Element, Fill, Length, Task};
+use iced::{Alignment, Element, Fill, Length, Subscription, Task};
 use model::dof::Dof;
 
 use crate::{
@@ -74,6 +75,8 @@ pub enum Message {
     SolveRequested,
     ResultDisplaySelected(ResultDisplay),
     ResultScaleChanged(f64),
+    FocusNextInput,
+    FocusPreviousInput,
     FitView,
     NewModel,
     LoadSample,
@@ -188,6 +191,12 @@ impl BajrangApp {
                     format!("Result scale {:.0} px", self.result_scale),
                 );
             }
+            Message::FocusNextInput => {
+                return iced::widget::operation::focus_next();
+            }
+            Message::FocusPreviousInput => {
+                return iced::widget::operation::focus_previous();
+            }
             Message::FitView => {
                 self.viewport = ViewportState::default();
                 self.set_status(StatusLevel::Neutral, "View reset");
@@ -254,6 +263,21 @@ impl BajrangApp {
             .height(Fill)
             .style(theme::app_background)
             .into()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        keyboard::listen().filter_map(|event| match event {
+            keyboard::Event::KeyPressed { key, modifiers, .. }
+                if key == Key::Named(key::Named::Tab) =>
+            {
+                if modifiers.shift() {
+                    Some(Message::FocusPreviousInput)
+                } else {
+                    Some(Message::FocusNextInput)
+                }
+            }
+            _ => None,
+        })
     }
 
     fn toolbar(&self) -> Element<'_, Message> {
