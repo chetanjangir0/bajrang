@@ -7,8 +7,8 @@ use model::dof::Dof;
 use crate::{
     expression, panels,
     state::{
-        AnalysisState, CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, Selection,
-        StructuralModel, SupportField, WorkspaceTool, run_basic_analysis,
+        AnalysisState, CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, ResultDisplay,
+        Selection, StructuralModel, SupportField, WorkspaceTool, run_basic_analysis,
     },
     theme,
     viewport::{ViewportPress, ViewportState, ViewportUpdate},
@@ -22,6 +22,8 @@ pub struct BajrangApp {
     pub draft: InteractionDraft,
     pub viewport: ViewportState,
     pub analysis: AnalysisState,
+    pub result_display: ResultDisplay,
+    pub result_scale: f64,
     pub status: StatusLine,
     pub node_coordinate_edits: BTreeMap<(usize, CoordinateAxis), String>,
     pub member_endpoint_edits: BTreeMap<(usize, MemberEndpoint), String>,
@@ -70,6 +72,8 @@ pub enum Message {
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
     SolveRequested,
+    ResultDisplaySelected(ResultDisplay),
+    ResultScaleChanged(f64),
     FitView,
     NewModel,
     LoadSample,
@@ -98,6 +102,8 @@ impl Default for BajrangApp {
             draft: InteractionDraft::default(),
             viewport: ViewportState::default(),
             analysis: AnalysisState::Idle,
+            result_display: ResultDisplay::Model,
+            result_scale: 80.0,
             status: StatusLine::neutral("Ready"),
             node_coordinate_edits: BTreeMap::new(),
             member_endpoint_edits: BTreeMap::new(),
@@ -171,6 +177,17 @@ impl BajrangApp {
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
+            Message::ResultDisplaySelected(display) => {
+                self.result_display = display;
+                self.set_status(StatusLevel::Neutral, format!("{} view", display.label()));
+            }
+            Message::ResultScaleChanged(scale) => {
+                self.result_scale = scale.clamp(0.0, 400.0);
+                self.set_status(
+                    StatusLevel::Neutral,
+                    format!("Result scale {:.0} px", self.result_scale),
+                );
+            }
             Message::FitView => {
                 self.viewport = ViewportState::default();
                 self.set_status(StatusLevel::Neutral, "View reset");
@@ -181,6 +198,7 @@ impl BajrangApp {
                 self.draft.clear();
                 self.clear_edit_drafts();
                 self.analysis = AnalysisState::Idle;
+                self.result_display = ResultDisplay::Model;
                 self.set_status(StatusLevel::Neutral, "New model");
             }
             Message::LoadSample => {
@@ -212,12 +230,17 @@ impl BajrangApp {
             self.tool,
             self.draft,
             self.viewport,
+            &self.analysis,
+            self.result_display,
+            self.result_scale,
         );
 
         let inspector = container(scrollable(panels::properties::view(
             &self.model,
             self.selection,
             &self.analysis,
+            self.result_display,
+            self.result_scale,
         )))
         .width(332)
         .height(Fill)
@@ -623,6 +646,7 @@ impl BajrangApp {
         match run_basic_analysis(&self.model) {
             Ok(summary) => {
                 let displacement = summary.max_displacement;
+                self.result_display = ResultDisplay::Combined;
                 self.analysis = AnalysisState::Success(summary);
                 self.set_status(
                     StatusLevel::Success,

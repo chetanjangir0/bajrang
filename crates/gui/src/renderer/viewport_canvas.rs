@@ -3,11 +3,12 @@ use iced::widget::canvas;
 use iced::{
     Color, Element, Font, Length, Pixels, Point, Rectangle, Renderer, Theme, Vector, alignment,
 };
-use model::node::Node;
+use model::{dof::Dof, node::Node};
 
 use crate::{
     state::{
-        InteractionDraft, Selection, StructuralModel, WorkspaceTool, element_data, element_kind,
+        AnalysisState, InteractionDraft, ResultDisplay, Selection, StructuralModel, WorkspaceTool,
+        dof_label, element_data, element_kind,
     },
     theme,
     viewport::{ViewportEvent, ViewportPress, ViewportState, ViewportUpdate},
@@ -20,6 +21,9 @@ pub struct ViewportCanvas<'a> {
     tool: WorkspaceTool,
     draft: InteractionDraft,
     viewport: ViewportState,
+    analysis: &'a AnalysisState,
+    result_display: ResultDisplay,
+    result_scale: f64,
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +38,9 @@ impl<'a> ViewportCanvas<'a> {
         tool: WorkspaceTool,
         draft: InteractionDraft,
         viewport: ViewportState,
+        analysis: &'a AnalysisState,
+        result_display: ResultDisplay,
+        result_scale: f64,
     ) -> Self {
         Self {
             model,
@@ -41,6 +48,9 @@ impl<'a> ViewportCanvas<'a> {
             tool,
             draft,
             viewport,
+            analysis,
+            result_display,
+            result_scale,
         }
     }
 
@@ -171,10 +181,13 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
 
         draw_grid(&mut frame, bounds, self.viewport);
         draw_axes(&mut frame, bounds, self.viewport);
+        self.draw_deformed_members(&mut frame, bounds);
         self.draw_members(&mut frame, bounds);
         self.draw_loads(&mut frame, bounds);
         self.draw_supports(&mut frame, bounds);
         self.draw_nodes(&mut frame, bounds);
+        self.draw_result_vectors(&mut frame, bounds);
+        self.draw_result_legend(&mut frame, bounds);
         self.draw_empty_state(&mut frame, bounds);
 
         vec![frame.into_geometry()]
@@ -212,14 +225,22 @@ impl ViewportCanvas<'_> {
             let b = self.node_screen_position(nj, bounds);
             let selected = self.selection == Some(Selection::Element(id));
 
+            let color = if matches!(
+                self.result_display,
+                ResultDisplay::MemberForces | ResultDisplay::Combined
+            ) {
+                self.member_force_color(id)
+                    .unwrap_or(Color::from_rgb(0.812, 0.847, 0.867))
+            } else if selected {
+                theme::ACCENT
+            } else {
+                Color::from_rgb(0.812, 0.847, 0.867)
+            };
+
             frame.stroke(
                 &canvas::Path::line(a, b),
                 canvas::Stroke {
-                    style: canvas::Style::Solid(if selected {
-                        theme::ACCENT
-                    } else {
-                        Color::from_rgb(0.812, 0.847, 0.867)
-                    }),
+                    style: canvas::Style::Solid(color),
                     width: if selected { 4.0 } else { 2.5 },
                     ..canvas::Stroke::default()
                 },
@@ -259,6 +280,41 @@ impl ViewportCanvas<'_> {
                 theme::TEXT,
                 12.0,
                 44.0,
+            );
+        }
+    }
+
+    fn draw_deformed_members(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if !matches!(
+            self.result_display,
+            ResultDisplay::Deformed | ResultDisplay::Displacements | ResultDisplay::Combined
+        ) {
+            return;
+        }
+
+        let Some(summary) = self.summary() else {
+            return;
+        };
+
+        for element in &self.model.elements {
+            let (_, node_i, node_j) = element_data(element);
+            let Some(ni) = self.model.node(node_i) else {
+                continue;
+            };
+            let Some(nj) = self.model.node(node_j) else {
+                continue;
+            };
+
+            let a = self.deformed_node_screen_position(ni, bounds, summary);
+            let b = self.deformed_node_screen_position(nj, bounds, summary);
+
+            frame.stroke(
+                &canvas::Path::line(a, b),
+                canvas::Stroke {
+                    style: canvas::Style::Solid(Color::from_rgb(0.992, 0.722, 0.286)),
+                    width: 2.0,
+                    ..canvas::Stroke::default()
+                },
             );
         }
     }
@@ -319,6 +375,103 @@ impl ViewportCanvas<'_> {
         }
     }
 
+    fn draw_result_vectors(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        let Some(summary) = self.summary() else {
+            return;
+        };
+
+        if matches!(
+            self.result_display,
+            ResultDisplay::Displacements | ResultDisplay::Combined
+        ) {
+            for node in &self.model.nodes {
+                let start = self.node_screen_position(node, bounds);
+                let delta = self.displacement_screen_vector(summary, node.id);
+
+                if vector_length(delta) > 1.0 {
+                    draw_arrow(
+                        frame,
+                        start,
+                        start + delta,
+                        Color::from_rgb(0.992, 0.722, 0.286),
+                        1.8,
+                    );
+                }
+            }
+        }
+
+        if matches!(
+            self.result_display,
+            ResultDisplay::Reactions | ResultDisplay::Combined
+        ) {
+            for reaction in &summary.reactions {
+                let Some(node) = self.model.node(reaction.node_id) else {
+                    continue;
+                };
+
+                let Some(direction) = reaction_direction(reaction.dof) else {
+                    let point = self.node_screen_position(node, bounds);
+                    label(
+                        frame,
+                        format!(
+                            "{} {:+.2} kN",
+                            dof_label(reaction.dof),
+                            reaction.magnitude / 1000.0
+                        ),
+                        point + Vector::new(0.0, -32.0),
+                        theme::SUPPORT,
+                        11.0,
+                        92.0,
+                    );
+                    continue;
+                };
+
+                let point = self.node_screen_position(node, bounds);
+                let length = if summary.max_reaction <= f64::EPSILON {
+                    0.0
+                } else {
+                    22.0 + 34.0 * (reaction.magnitude.abs() / summary.max_reaction) as f32
+                };
+                let signed = if reaction.magnitude >= 0.0 { 1.0 } else { -1.0 };
+                let end = point + direction * signed * length;
+                draw_arrow(frame, point, end, theme::SUPPORT, 2.2);
+                label(
+                    frame,
+                    format!("{:+.2} kN", reaction.magnitude / 1000.0),
+                    end + direction * signed * 12.0,
+                    theme::SUPPORT,
+                    11.0,
+                    86.0,
+                );
+            }
+        }
+    }
+
+    fn draw_result_legend(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.result_display == ResultDisplay::Model {
+            return;
+        }
+
+        let label_text = match self.summary() {
+            Some(summary) => format!(
+                "{}  |  scale {:.0} px  |  max |u| {:.2e} m",
+                self.result_display.label(),
+                self.result_scale,
+                summary.max_displacement
+            ),
+            None => "Solve model to view results".to_string(),
+        };
+
+        label(
+            frame,
+            label_text,
+            Point::new(bounds.width * 0.5, 22.0),
+            theme::TEXT,
+            12.0,
+            bounds.width - 48.0,
+        );
+    }
+
     fn draw_empty_state(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
         if !self.model.nodes.is_empty() {
             return;
@@ -332,6 +485,54 @@ impl ViewportCanvas<'_> {
             16.0,
             bounds.width - 48.0,
         );
+    }
+
+    fn deformed_node_screen_position(
+        &self,
+        node: &Node,
+        bounds: Rectangle,
+        summary: &crate::state::AnalysisSummary,
+    ) -> Point {
+        self.node_screen_position(node, bounds) + self.displacement_screen_vector(summary, node.id)
+    }
+
+    fn displacement_screen_vector(
+        &self,
+        summary: &crate::state::AnalysisSummary,
+        node_id: usize,
+    ) -> Vector {
+        if summary.max_displacement <= f64::EPSILON {
+            return Vector::new(0.0, 0.0);
+        }
+
+        let ux = displacement(summary, node_id, Dof::Ux);
+        let uy = displacement(summary, node_id, Dof::Uy);
+        Vector::new(
+            (ux / summary.max_displacement * self.result_scale) as f32,
+            -(uy / summary.max_displacement * self.result_scale) as f32,
+        )
+    }
+
+    fn member_force_color(&self, element_id: usize) -> Option<Color> {
+        let summary = self.summary()?;
+        if summary.max_member_force <= f64::EPSILON {
+            return Some(Color::from_rgb(0.812, 0.847, 0.867));
+        }
+
+        let result = summary
+            .member_results
+            .iter()
+            .find(|result| result.element_id == element_id)?;
+        let ratio = (result.governing_force.abs() / summary.max_member_force).clamp(0.0, 1.0);
+
+        Some(force_color(ratio))
+    }
+
+    fn summary(&self) -> Option<&crate::state::AnalysisSummary> {
+        match self.analysis {
+            AnalysisState::Success(summary) => Some(summary),
+            AnalysisState::Idle | AnalysisState::Failed(_) => None,
+        }
     }
 }
 
@@ -416,6 +617,59 @@ fn label(
         shaping: iced::widget::text::Shaping::Basic,
         max_width,
     });
+}
+
+fn draw_arrow(frame: &mut canvas::Frame, start: Point, end: Point, color: Color, width: f32) {
+    frame.stroke(
+        &canvas::Path::line(start, end),
+        canvas::Stroke {
+            style: canvas::Style::Solid(color),
+            width,
+            ..canvas::Stroke::default()
+        },
+    );
+
+    let direction = end - start;
+    let length = vector_length(direction);
+    if length <= f32::EPSILON {
+        return;
+    }
+
+    let unit = direction * (1.0 / length);
+    let normal = Vector::new(-unit.y, unit.x);
+    let head = canvas::Path::new(|builder| {
+        builder.move_to(end);
+        builder.line_to(end - unit * 10.0 + normal * 5.5);
+        builder.line_to(end - unit * 10.0 - normal * 5.5);
+        builder.close();
+    });
+
+    frame.fill(&head, color);
+}
+
+fn displacement(summary: &crate::state::AnalysisSummary, node_id: usize, dof: Dof) -> f64 {
+    summary
+        .displacements
+        .get(model::dof::global_dof_index(node_id, dof))
+        .copied()
+        .unwrap_or_default()
+}
+
+fn reaction_direction(dof: Dof) -> Option<Vector> {
+    match dof {
+        Dof::Ux => Some(Vector::new(1.0, 0.0)),
+        Dof::Uy => Some(Vector::new(0.0, -1.0)),
+        Dof::Uz | Dof::Rx | Dof::Ry | Dof::Rz => None,
+    }
+}
+
+fn force_color(ratio: f64) -> Color {
+    let t = ratio as f32;
+    Color::from_rgb(0.290 + 0.667 * t, 0.761 - 0.388 * t, 0.612 - 0.290 * t)
+}
+
+fn vector_length(vector: Vector) -> f32 {
+    (vector.x * vector.x + vector.y * vector.y).sqrt()
 }
 
 fn distance(a: Point, b: Point) -> f32 {

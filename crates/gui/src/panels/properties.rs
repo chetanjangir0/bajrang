@@ -1,11 +1,12 @@
 use iced::widget::{column, container, row, text};
 use iced::{Element, Fill, Length};
+use model::dof::Dof;
 
 use crate::{
     app::Message,
     state::{
-        AnalysisState, Selection, StructuralModel, dof_label, element_data, element_kind,
-        member_length,
+        AnalysisState, ResultDisplay, Selection, StructuralModel, dof_label, element_data,
+        element_kind, member_length,
     },
     theme,
 };
@@ -14,11 +15,14 @@ pub fn view<'a>(
     model: &'a StructuralModel,
     selection: Option<Selection>,
     analysis: &'a AnalysisState,
+    result_display: ResultDisplay,
+    result_scale: f64,
 ) -> Element<'a, Message> {
     column![
         text("Inspector").size(18).color(theme::TEXT),
         selection_panel(model, selection),
-        analysis_panel(analysis),
+        analysis_panel(model, analysis, selection),
+        results_panel(analysis, result_display, result_scale),
     ]
     .spacing(16)
     .padding(14)
@@ -72,22 +76,113 @@ fn member_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
     )
 }
 
-fn analysis_panel(analysis: &AnalysisState) -> Element<'_, Message> {
+fn analysis_panel<'a>(
+    model: &'a StructuralModel,
+    analysis: &'a AnalysisState,
+    selection: Option<Selection>,
+) -> Element<'a, Message> {
     match analysis {
         AnalysisState::Idle => empty_panel("Analysis", "Not solved"),
-        AnalysisState::Success(summary) => panel(
-            "Analysis",
-            column![
+        AnalysisState::Success(summary) => panel("Analysis", {
+            let mut content = column![
                 property("Scope", summary.result_scope.to_string()),
                 property("Max |u|", format!("{:.3e} m", summary.max_displacement)),
                 property("Reactions", summary.reaction_count.to_string()),
-            ],
-        ),
+                property(
+                    "Max |R|",
+                    format!("{:.3} kN", summary.max_reaction / 1000.0)
+                ),
+                property(
+                    "Max member",
+                    format!("{:.3} kN", summary.max_member_force / 1000.0)
+                ),
+            ];
+
+            if let Some(Selection::Node(node_id)) = selection {
+                content = content.push(node_results(summary, node_id));
+            }
+
+            if let Some(Selection::Element(element_id)) = selection {
+                if model.element(element_id).is_some() {
+                    content = content.push(member_results(summary, element_id));
+                }
+            }
+
+            content
+        }),
         AnalysisState::Failed(error) => panel(
             "Analysis",
             column![text(error).size(14).color(theme::LOAD).width(Fill)],
         ),
     }
+}
+
+fn results_panel(
+    analysis: &AnalysisState,
+    result_display: ResultDisplay,
+    result_scale: f64,
+) -> Element<'_, Message> {
+    let solved = matches!(analysis, AnalysisState::Success(_));
+    let status = if solved { "Solved" } else { "Not solved" };
+
+    panel(
+        "Results",
+        column![
+            property("Status", status.to_string()),
+            property("View", result_display.label().to_string()),
+            property("Scale", format!("{result_scale:.0} px")),
+        ],
+    )
+}
+
+fn node_results(summary: &crate::state::AnalysisSummary, node_id: usize) -> Element<'_, Message> {
+    column![
+        property(
+            "Ux",
+            format!("{:.3e} m", displacement(summary, node_id, Dof::Ux))
+        ),
+        property(
+            "Uy",
+            format!("{:.3e} m", displacement(summary, node_id, Dof::Uy))
+        ),
+        property(
+            "R Ux",
+            format!("{:.3} kN", reaction(summary, node_id, Dof::Ux) / 1000.0)
+        ),
+        property(
+            "R Uy",
+            format!("{:.3} kN", reaction(summary, node_id, Dof::Uy) / 1000.0)
+        ),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn member_results(
+    summary: &crate::state::AnalysisSummary,
+    element_id: usize,
+) -> Element<'_, Message> {
+    let Some(result) = summary
+        .member_results
+        .iter()
+        .find(|result| result.element_id == element_id)
+    else {
+        return text("No member result")
+            .size(14)
+            .color(theme::TEXT_MUTED)
+            .into();
+    };
+
+    result
+        .values
+        .iter()
+        .fold(
+            column![property("Result", result.kind.to_string())].spacing(8),
+            |column, (label, value)| {
+                column.push(property(label, format!("{:.3} kN", value / 1000.0)))
+            },
+        )
+        .into()
 }
 
 fn panel<'a>(
@@ -148,4 +243,20 @@ fn load_summary(model: &StructuralModel, node_id: usize) -> String {
     } else {
         labels.join(", ")
     }
+}
+
+fn displacement(summary: &crate::state::AnalysisSummary, node_id: usize, dof: Dof) -> f64 {
+    summary
+        .displacements
+        .get(model::dof::global_dof_index(node_id, dof))
+        .copied()
+        .unwrap_or_default()
+}
+
+fn reaction(summary: &crate::state::AnalysisSummary, node_id: usize, dof: Dof) -> f64 {
+    summary
+        .reactions
+        .iter()
+        .find(|reaction| reaction.node_id == node_id && reaction.dof == dof)
+        .map_or(0.0, |reaction| reaction.magnitude)
 }
