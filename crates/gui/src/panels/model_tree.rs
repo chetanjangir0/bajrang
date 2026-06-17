@@ -6,8 +6,8 @@ use iced::{Alignment, Element, Fill, Length};
 use crate::{
     app::Message,
     state::{
-        CoordinateAxis, InteractionDraft, Selection, StructuralModel, WorkspaceTool, dof_label,
-        element_data, element_id, element_kind,
+        CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, Selection, StructuralModel,
+        SupportField, WorkspaceTool, dof_label, element_data, element_id, element_kind,
     },
     theme,
 };
@@ -18,6 +18,9 @@ pub fn view<'a>(
     tool: WorkspaceTool,
     draft: InteractionDraft,
     node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
+    member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
+    load_edits: &'a BTreeMap<(usize, LoadField), String>,
+    support_edits: &'a BTreeMap<(usize, SupportField), String>,
 ) -> Element<'a, Message> {
     let filter = ModelTreeFilter::for_tool(tool);
     let mut tree = column![panel_title(filter.title()), summary(model, filter),]
@@ -36,15 +39,20 @@ pub fn view<'a>(
     }
 
     if filter.show_members {
-        tree = tree.push(members(model, selection));
+        tree = tree.push(members(
+            model,
+            selection,
+            filter.edit_members(),
+            member_endpoint_edits,
+        ));
     }
 
     if filter.show_supports {
-        tree = tree.push(supports(model));
+        tree = tree.push(supports(model, filter.edit_supports(), support_edits));
     }
 
     if filter.show_loads {
-        tree = tree.push(loads(model));
+        tree = tree.push(loads(model, filter.edit_loads(), load_edits));
     }
 
     tree.into()
@@ -113,6 +121,18 @@ impl ModelTreeFilter {
     fn edit_nodes(self) -> bool {
         self.tool == WorkspaceTool::AddNode
     }
+
+    fn edit_members(self) -> bool {
+        self.tool == WorkspaceTool::DrawMember
+    }
+
+    fn edit_loads(self) -> bool {
+        self.tool == WorkspaceTool::AssignLoad
+    }
+
+    fn edit_supports(self) -> bool {
+        self.tool == WorkspaceTool::AssignSupport
+    }
 }
 
 fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Message> {
@@ -180,7 +200,12 @@ fn nodes<'a>(
         .into()
 }
 
-fn members(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
+fn members<'a>(
+    model: &'a StructuralModel,
+    selection: Option<Selection>,
+    editable: bool,
+    member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
+) -> Element<'a, Message> {
     if model.elements.is_empty() {
         return empty_section("Members", "No members in this model");
     }
@@ -191,17 +216,31 @@ fn members(model: &StructuralModel, selection: Option<Selection>) -> Element<'_,
         .fold(section("Members"), |column, element| {
             let (id, node_i, node_j) = element_data(element);
 
-            column.push(selectable_row(
-                format!("M{id}"),
-                format!("{}  N{}-N{}", element_kind(element), node_i, node_j),
-                selection == Some(Selection::Element(element_id(element))),
-                Selection::Element(id),
-            ))
+            if editable {
+                column.push(editable_member_row(
+                    id,
+                    node_i,
+                    node_j,
+                    selection == Some(Selection::Element(element_id(element))),
+                    member_endpoint_edits,
+                ))
+            } else {
+                column.push(selectable_row(
+                    format!("M{id}"),
+                    format!("{}  N{}-N{}", element_kind(element), node_i, node_j),
+                    selection == Some(Selection::Element(element_id(element))),
+                    Selection::Element(id),
+                ))
+            }
         })
         .into()
 }
 
-fn supports(model: &StructuralModel) -> Element<'_, Message> {
+fn supports<'a>(
+    model: &'a StructuralModel,
+    editable: bool,
+    support_edits: &'a BTreeMap<(usize, SupportField), String>,
+) -> Element<'a, Message> {
     if model.supports.is_empty() {
         return empty_section("Supports", "No supports assigned");
     }
@@ -209,16 +248,30 @@ fn supports(model: &StructuralModel) -> Element<'_, Message> {
     model
         .supports
         .iter()
-        .fold(section("Supports"), |column, support| {
-            column.push(static_row(
-                format!("N{}", support.node_id),
-                dof_label(support.dof).to_string(),
-            ))
+        .enumerate()
+        .fold(section("Supports"), |column, (index, support)| {
+            if editable {
+                column.push(editable_support_row(
+                    index,
+                    support.node_id,
+                    dof_label(support.dof),
+                    support_edits,
+                ))
+            } else {
+                column.push(static_row(
+                    format!("N{}", support.node_id),
+                    dof_label(support.dof).to_string(),
+                ))
+            }
         })
         .into()
 }
 
-fn loads(model: &StructuralModel) -> Element<'_, Message> {
+fn loads<'a>(
+    model: &'a StructuralModel,
+    editable: bool,
+    load_edits: &'a BTreeMap<(usize, LoadField), String>,
+) -> Element<'a, Message> {
     if model.nodal_loads.is_empty() {
         return empty_section("Loads", "No nodal loads assigned");
     }
@@ -226,11 +279,22 @@ fn loads(model: &StructuralModel) -> Element<'_, Message> {
     model
         .nodal_loads
         .iter()
-        .fold(section("Loads"), |column, load| {
-            column.push(static_row(
-                format!("N{}", load.node_id),
-                format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
-            ))
+        .enumerate()
+        .fold(section("Loads"), |column, (index, load)| {
+            if editable {
+                column.push(editable_load_row(
+                    index,
+                    load.node_id,
+                    dof_label(load.dof),
+                    load.magnitude / 1000.0,
+                    load_edits,
+                ))
+            } else {
+                column.push(static_row(
+                    format!("N{}", load.node_id),
+                    format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
+                ))
+            }
         })
         .into()
 }
@@ -330,6 +394,113 @@ fn editable_node_row(
         .into()
 }
 
+fn editable_member_row(
+    element_id: usize,
+    node_i: usize,
+    node_j: usize,
+    selected: bool,
+    member_endpoint_edits: &BTreeMap<(usize, MemberEndpoint), String>,
+) -> Element<'static, Message> {
+    let content = row![
+        button(
+            text(element_id.to_string())
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
+        )
+        .style(if selected {
+            theme::tool_button_active
+        } else {
+            theme::tool_button
+        })
+        .padding([4, 6])
+        .width(Length::Fixed(28.0))
+        .on_press(Message::SelectionRequested(Some(Selection::Element(
+            element_id
+        )))),
+        member_endpoint_input(
+            element_id,
+            MemberEndpoint::Start,
+            node_i,
+            member_endpoint_edits
+        ),
+        member_endpoint_input(
+            element_id,
+            MemberEndpoint::End,
+            node_j,
+            member_endpoint_edits
+        ),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    container(content)
+        .padding([4, 6])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
+fn editable_load_row(
+    index: usize,
+    node_id: usize,
+    dof: &'static str,
+    magnitude_kn: f64,
+    load_edits: &BTreeMap<(usize, LoadField), String>,
+) -> Element<'static, Message> {
+    let content = row![
+        text(index.to_string())
+            .size(14)
+            .color(theme::TEXT)
+            .width(Length::Fixed(28.0)),
+        load_input(index, LoadField::Node, node_id.to_string(), load_edits),
+        load_input(index, LoadField::Dof, dof.to_string(), load_edits),
+        load_input(
+            index,
+            LoadField::Magnitude,
+            coordinate_value(magnitude_kn),
+            load_edits
+        ),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    container(content)
+        .padding([4, 6])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
+fn editable_support_row(
+    index: usize,
+    node_id: usize,
+    dof: &'static str,
+    support_edits: &BTreeMap<(usize, SupportField), String>,
+) -> Element<'static, Message> {
+    let content = row![
+        text(index.to_string())
+            .size(14)
+            .color(theme::TEXT)
+            .width(Length::Fixed(28.0)),
+        support_input(
+            index,
+            SupportField::Node,
+            node_id.to_string(),
+            support_edits
+        ),
+        support_input(index, SupportField::Dof, dof.to_string(), support_edits),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    container(content)
+        .padding([4, 6])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
 fn coordinate_input(
     node_id: usize,
     axis: CoordinateAxis,
@@ -348,6 +519,81 @@ fn coordinate_input(
             value,
         })
         .on_submit(Message::NodeCoordinateSubmitted { node_id, axis })
+        .padding([4, 6])
+        .size(13)
+        .width(Length::Fill)
+        .style(theme::compact_input)
+        .into()
+}
+
+fn member_endpoint_input(
+    element_id: usize,
+    endpoint: MemberEndpoint,
+    node_id: usize,
+    member_endpoint_edits: &BTreeMap<(usize, MemberEndpoint), String>,
+) -> Element<'static, Message> {
+    let value = member_endpoint_edits
+        .get(&(element_id, endpoint))
+        .cloned()
+        .unwrap_or_else(|| node_id.to_string());
+
+    text_input(endpoint.label(), &value)
+        .on_input(move |value| Message::MemberEndpointDraftChanged {
+            element_id,
+            endpoint,
+            value,
+        })
+        .on_submit(Message::MemberEndpointSubmitted {
+            element_id,
+            endpoint,
+        })
+        .padding([4, 6])
+        .size(13)
+        .width(Length::Fill)
+        .style(theme::compact_input)
+        .into()
+}
+
+fn load_input(
+    index: usize,
+    field: LoadField,
+    fallback: String,
+    load_edits: &BTreeMap<(usize, LoadField), String>,
+) -> Element<'static, Message> {
+    let value = load_edits.get(&(index, field)).cloned().unwrap_or(fallback);
+
+    text_input(field.label(), &value)
+        .on_input(move |value| Message::LoadDraftChanged {
+            index,
+            field,
+            value,
+        })
+        .on_submit(Message::LoadSubmitted { index })
+        .padding([4, 6])
+        .size(13)
+        .width(Length::Fill)
+        .style(theme::compact_input)
+        .into()
+}
+
+fn support_input(
+    index: usize,
+    field: SupportField,
+    fallback: String,
+    support_edits: &BTreeMap<(usize, SupportField), String>,
+) -> Element<'static, Message> {
+    let value = support_edits
+        .get(&(index, field))
+        .cloned()
+        .unwrap_or(fallback);
+
+    text_input(field.label(), &value)
+        .on_input(move |value| Message::SupportDraftChanged {
+            index,
+            field,
+            value,
+        })
+        .on_submit(Message::SupportSubmitted { index })
         .padding([4, 6])
         .size(13)
         .width(Length::Fill)

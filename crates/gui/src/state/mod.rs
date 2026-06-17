@@ -121,9 +121,77 @@ impl StructuralModel {
         Ok(id)
     }
 
+    pub fn update_member_endpoint(
+        &mut self,
+        element_id: usize,
+        endpoint: MemberEndpoint,
+        node_id: usize,
+    ) -> Result<(), String> {
+        if self.node(node_id).is_none() {
+            return Err(format!("Node {node_id} does not exist."));
+        }
+
+        let Some((current_i, current_j)) = self.element(element_id).map(element_nodes) else {
+            return Err(format!("Member {element_id} does not exist."));
+        };
+
+        let (node_i, node_j) = match endpoint {
+            MemberEndpoint::Start => (node_id, current_j),
+            MemberEndpoint::End => (current_i, node_id),
+        };
+
+        if node_i == node_j {
+            return Err("Member endpoints must be different nodes.".to_string());
+        }
+
+        if self
+            .elements
+            .iter()
+            .filter(|element| element_id_of(element) != element_id)
+            .any(|element| {
+                let (other_i, other_j) = element_nodes(element);
+                (other_i == node_i && other_j == node_j) || (other_i == node_j && other_j == node_i)
+            })
+        {
+            return Err("A member already connects those nodes.".to_string());
+        }
+
+        let Some(element) = self
+            .elements
+            .iter_mut()
+            .find(|element| element_id_of(element) == element_id)
+        else {
+            return Err(format!("Member {element_id} does not exist."));
+        };
+
+        set_element_nodes(element, node_i, node_j);
+        Ok(())
+    }
+
     pub fn add_default_load(&mut self, node_id: usize) {
         self.nodal_loads
             .push(NodalLoad::new(node_id, Dof::Uy, -10_000.0));
+    }
+
+    pub fn update_nodal_load(
+        &mut self,
+        index: usize,
+        node_id: usize,
+        dof: Dof,
+        magnitude: f64,
+    ) -> Result<(), String> {
+        if self.node(node_id).is_none() {
+            return Err(format!("Node {node_id} does not exist."));
+        }
+
+        let Some(load) = self.nodal_loads.get_mut(index) else {
+            return Err(format!("Load {index} does not exist."));
+        };
+
+        load.node_id = node_id;
+        load.dof = dof;
+        load.magnitude = magnitude;
+        Ok(())
     }
 
     pub fn assign_pin_support(&mut self, node_id: usize) {
@@ -136,6 +204,34 @@ impl StructuralModel {
                 self.supports.push(support);
             }
         }
+    }
+
+    pub fn update_support(&mut self, index: usize, node_id: usize, dof: Dof) -> Result<(), String> {
+        if self.node(node_id).is_none() {
+            return Err(format!("Node {node_id} does not exist."));
+        }
+
+        if self
+            .supports
+            .iter()
+            .enumerate()
+            .any(|(existing_index, support)| {
+                existing_index != index && support.node_id == node_id && support.dof == dof
+            })
+        {
+            return Err(format!(
+                "Support {node_id} {} already exists.",
+                dof_label(dof)
+            ));
+        }
+
+        let Some(support) = self.supports.get_mut(index) else {
+            return Err(format!("Support {index} does not exist."));
+        };
+
+        support.node_id = node_id;
+        support.dof = dof;
+        Ok(())
     }
 
     pub fn node(&self, id: usize) -> Option<&Node> {
@@ -236,6 +332,53 @@ pub enum CoordinateAxis {
     X,
     Y,
     Z,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MemberEndpoint {
+    Start,
+    End,
+}
+
+impl MemberEndpoint {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Start => "i",
+            Self::End => "j",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LoadField {
+    Node,
+    Dof,
+    Magnitude,
+}
+
+impl LoadField {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Node => "N",
+            Self::Dof => "DOF",
+            Self::Magnitude => "kN",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SupportField {
+    Node,
+    Dof,
+}
+
+impl SupportField {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Node => "N",
+            Self::Dof => "DOF",
+        }
+    }
 }
 
 impl CoordinateAxis {
@@ -340,6 +483,44 @@ pub fn element_data(element: &StructuralElement) -> (usize, usize, usize) {
     }
 }
 
+fn element_id_of(element: &StructuralElement) -> usize {
+    element_id(element)
+}
+
+fn element_nodes(element: &StructuralElement) -> (usize, usize) {
+    let (_, node_i, node_j) = element_data(element);
+    (node_i, node_j)
+}
+
+fn set_element_nodes(element: &mut StructuralElement, node_i: usize, node_j: usize) {
+    match element {
+        StructuralElement::Truss2D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+        StructuralElement::Truss3D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+        StructuralElement::Beam2D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+        StructuralElement::Beam3D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+        StructuralElement::Frame2D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+        StructuralElement::Frame3D(element) => {
+            element.node_i = node_i;
+            element.node_j = node_j;
+        }
+    }
+}
+
 pub fn element_kind(element: &StructuralElement) -> &'static str {
     match element {
         StructuralElement::Truss2D(_) => "Truss2D",
@@ -380,4 +561,56 @@ fn max_abs(values: &[f64]) -> f64 {
 
 fn snapped(value: f64) -> f64 {
     (value * 4.0).round() / 4.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn updates_member_endpoint_when_node_exists() {
+        let mut model = StructuralModel::sample();
+
+        model
+            .update_member_endpoint(1, MemberEndpoint::End, 3)
+            .expect("member endpoint should update");
+
+        assert_eq!(element_data(model.element(1).unwrap()), (1, 1, 3));
+    }
+
+    #[test]
+    fn rejects_duplicate_member_connection() {
+        let mut model = StructuralModel::sample();
+
+        let error = model
+            .update_member_endpoint(0, MemberEndpoint::End, 3)
+            .expect_err("duplicate member should be rejected");
+
+        assert_eq!(error, "A member already connects those nodes.");
+    }
+
+    #[test]
+    fn updates_load_fields() {
+        let mut model = StructuralModel::sample();
+
+        model
+            .update_nodal_load(0, 1, Dof::Ux, 12_000.0)
+            .expect("load should update");
+
+        let load = &model.nodal_loads[0];
+        assert_eq!(load.node_id, 1);
+        assert_eq!(load.dof, Dof::Ux);
+        assert_eq!(load.magnitude, 12_000.0);
+    }
+
+    #[test]
+    fn rejects_duplicate_support_constraint() {
+        let mut model = StructuralModel::sample();
+
+        let error = model
+            .update_support(1, 0, Dof::Ux)
+            .expect_err("duplicate support should be rejected");
+
+        assert_eq!(error, "Support 0 Ux already exists.");
+    }
 }

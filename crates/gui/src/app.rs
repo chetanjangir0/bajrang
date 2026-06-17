@@ -2,12 +2,13 @@ use std::collections::BTreeMap;
 
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Task};
+use model::dof::Dof;
 
 use crate::{
     expression, panels,
     state::{
-        AnalysisState, CoordinateAxis, InteractionDraft, Selection, StructuralModel, WorkspaceTool,
-        run_basic_analysis,
+        AnalysisState, CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, Selection,
+        StructuralModel, SupportField, WorkspaceTool, run_basic_analysis,
     },
     theme,
     viewport::{ViewportPress, ViewportState, ViewportUpdate},
@@ -23,6 +24,9 @@ pub struct BajrangApp {
     pub analysis: AnalysisState,
     pub status: StatusLine,
     pub node_coordinate_edits: BTreeMap<(usize, CoordinateAxis), String>,
+    pub member_endpoint_edits: BTreeMap<(usize, MemberEndpoint), String>,
+    pub load_edits: BTreeMap<(usize, LoadField), String>,
+    pub support_edits: BTreeMap<(usize, SupportField), String>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +41,31 @@ pub enum Message {
     NodeCoordinateSubmitted {
         node_id: usize,
         axis: CoordinateAxis,
+    },
+    MemberEndpointDraftChanged {
+        element_id: usize,
+        endpoint: MemberEndpoint,
+        value: String,
+    },
+    MemberEndpointSubmitted {
+        element_id: usize,
+        endpoint: MemberEndpoint,
+    },
+    LoadDraftChanged {
+        index: usize,
+        field: LoadField,
+        value: String,
+    },
+    LoadSubmitted {
+        index: usize,
+    },
+    SupportDraftChanged {
+        index: usize,
+        field: SupportField,
+        value: String,
+    },
+    SupportSubmitted {
+        index: usize,
     },
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
@@ -71,6 +100,9 @@ impl Default for BajrangApp {
             analysis: AnalysisState::Idle,
             status: StatusLine::neutral("Ready"),
             node_coordinate_edits: BTreeMap::new(),
+            member_endpoint_edits: BTreeMap::new(),
+            load_edits: BTreeMap::new(),
+            support_edits: BTreeMap::new(),
         }
     }
 }
@@ -81,7 +113,7 @@ impl BajrangApp {
             Message::ToolSelected(tool) => {
                 self.tool = tool;
                 self.draft.clear();
-                self.node_coordinate_edits.clear();
+                self.clear_edit_drafts();
                 self.set_status(
                     StatusLevel::Neutral,
                     format!("{} tool active", tool.label()),
@@ -107,6 +139,35 @@ impl BajrangApp {
             Message::NodeCoordinateSubmitted { node_id, axis } => {
                 self.handle_node_coordinate_submit(node_id, axis);
             }
+            Message::MemberEndpointDraftChanged {
+                element_id,
+                endpoint,
+                value,
+            } => {
+                self.member_endpoint_edits
+                    .insert((element_id, endpoint), value);
+                self.selection = Some(Selection::Element(element_id));
+            }
+            Message::MemberEndpointSubmitted {
+                element_id,
+                endpoint,
+            } => self.handle_member_endpoint_submit(element_id, endpoint),
+            Message::LoadDraftChanged {
+                index,
+                field,
+                value,
+            } => {
+                self.load_edits.insert((index, field), value);
+            }
+            Message::LoadSubmitted { index } => self.handle_load_submit(index),
+            Message::SupportDraftChanged {
+                index,
+                field,
+                value,
+            } => {
+                self.support_edits.insert((index, field), value);
+            }
+            Message::SupportSubmitted { index } => self.handle_support_submit(index),
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
@@ -118,7 +179,7 @@ impl BajrangApp {
                 self.model = StructuralModel::empty();
                 self.selection = None;
                 self.draft.clear();
-                self.node_coordinate_edits.clear();
+                self.clear_edit_drafts();
                 self.analysis = AnalysisState::Idle;
                 self.set_status(StatusLevel::Neutral, "New model");
             }
@@ -137,6 +198,9 @@ impl BajrangApp {
             self.tool,
             self.draft,
             &self.node_coordinate_edits,
+            &self.member_endpoint_edits,
+            &self.load_edits,
+            &self.support_edits,
         )))
         .width(292)
         .height(Fill)
@@ -338,6 +402,165 @@ impl BajrangApp {
         }
     }
 
+    fn handle_member_endpoint_submit(&mut self, element_id: usize, endpoint: MemberEndpoint) {
+        let key = (element_id, endpoint);
+        let value = self.member_endpoint_edits.get(&key).cloned().or_else(|| {
+            self.model.element(element_id).map(|element| {
+                let (_, node_i, node_j) = crate::state::element_data(element);
+                match endpoint {
+                    MemberEndpoint::Start => node_i,
+                    MemberEndpoint::End => node_j,
+                }
+                .to_string()
+            })
+        });
+
+        let Some(value) = value else {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Member {element_id} does not exist."),
+            );
+            return;
+        };
+
+        let node_id = match parse_usize(value.trim(), "node id") {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+
+        match self
+            .model
+            .update_member_endpoint(element_id, endpoint, node_id)
+        {
+            Ok(()) => {
+                self.member_endpoint_edits.remove(&key);
+                self.selection = Some(Selection::Element(element_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!(
+                        "Member {element_id} {} set to node {node_id}",
+                        endpoint.label()
+                    ),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn handle_load_submit(&mut self, index: usize) {
+        let Some(load) = self.model.nodal_loads.get(index) else {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Load {index} does not exist."),
+            );
+            return;
+        };
+
+        let node_text = self
+            .load_edits
+            .get(&(index, LoadField::Node))
+            .cloned()
+            .unwrap_or_else(|| load.node_id.to_string());
+        let dof_text = self
+            .load_edits
+            .get(&(index, LoadField::Dof))
+            .cloned()
+            .unwrap_or_else(|| dof_value(load.dof));
+        let magnitude_text = self
+            .load_edits
+            .get(&(index, LoadField::Magnitude))
+            .cloned()
+            .unwrap_or_else(|| formatted_value(load.magnitude / 1000.0));
+
+        let node_id = match parse_usize(node_text.trim(), "load node id") {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+        let dof = match parse_dof(&dof_text) {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+        let magnitude = match expression::evaluate(magnitude_text.trim()) {
+            Ok(value) => value * 1000.0,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, format!("Load {index} kN: {error}"));
+                return;
+            }
+        };
+
+        match self.model.update_nodal_load(index, node_id, dof, magnitude) {
+            Ok(()) => {
+                self.load_edits.remove(&(index, LoadField::Node));
+                self.load_edits.remove(&(index, LoadField::Dof));
+                self.load_edits.remove(&(index, LoadField::Magnitude));
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Load {index} updated"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn handle_support_submit(&mut self, index: usize) {
+        let Some(support) = self.model.supports.get(index) else {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Support {index} does not exist."),
+            );
+            return;
+        };
+
+        let node_text = self
+            .support_edits
+            .get(&(index, SupportField::Node))
+            .cloned()
+            .unwrap_or_else(|| support.node_id.to_string());
+        let dof_text = self
+            .support_edits
+            .get(&(index, SupportField::Dof))
+            .cloned()
+            .unwrap_or_else(|| dof_value(support.dof));
+
+        let node_id = match parse_usize(node_text.trim(), "support node id") {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+        let dof = match parse_dof(&dof_text) {
+            Ok(value) => value,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+
+        match self.model.update_support(index, node_id, dof) {
+            Ok(()) => {
+                self.support_edits.remove(&(index, SupportField::Node));
+                self.support_edits.remove(&(index, SupportField::Dof));
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Support {index} updated"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
     fn handle_member_press(&mut self, target: Option<Selection>) {
         let Some(Selection::Node(node_id)) = target else {
             self.set_status(StatusLevel::Warning, "Select a node endpoint");
@@ -419,6 +642,13 @@ impl BajrangApp {
             level,
         };
     }
+
+    fn clear_edit_drafts(&mut self) {
+        self.node_coordinate_edits.clear();
+        self.member_endpoint_edits.clear();
+        self.load_edits.clear();
+        self.support_edits.clear();
+    }
 }
 
 fn coordinate_text(node: &model::node::Node, axis: CoordinateAxis) -> String {
@@ -428,6 +658,37 @@ fn coordinate_text(node: &model::node::Node, axis: CoordinateAxis) -> String {
         CoordinateAxis::Z => node.z,
     }
     .to_string()
+}
+
+fn formatted_value(value: f64) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else {
+        format!("{value:.3}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+fn dof_value(dof: Dof) -> String {
+    crate::state::dof_label(dof).to_string()
+}
+
+fn parse_usize(value: &str, label: &str) -> Result<usize, String> {
+    value.parse().map_err(|_| format!("Enter a valid {label}."))
+}
+
+fn parse_dof(value: &str) -> Result<Dof, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "ux" => Ok(Dof::Ux),
+        "uy" => Ok(Dof::Uy),
+        "uz" => Ok(Dof::Uz),
+        "rx" => Ok(Dof::Rx),
+        "ry" => Ok(Dof::Ry),
+        "rz" => Ok(Dof::Rz),
+        _ => Err("Enter a valid DOF: Ux, Uy, Uz, Rx, Ry, or Rz.".to_string()),
+    }
 }
 
 impl StatusLine {
