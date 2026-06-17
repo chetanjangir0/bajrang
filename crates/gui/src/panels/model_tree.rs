@@ -301,41 +301,30 @@ fn editable_node_row(
     selected: bool,
     node_coordinate_edits: &BTreeMap<(usize, CoordinateAxis), String>,
 ) -> Element<'static, Message> {
-    let content = column![
+    let content = row![
         button(
-            row![
-                text(format!("N{node_id}"))
-                    .size(14)
-                    .color(theme::TEXT)
-                    .width(Length::Fixed(44.0)),
-                text("Coordinates")
-                    .size(13)
-                    .color(theme::TEXT_MUTED)
-                    .width(Fill),
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
+            text(node_id.to_string())
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
         )
         .style(if selected {
             theme::tool_button_active
         } else {
             theme::tool_button
         })
-        .padding([5, 8])
-        .width(Fill)
+        .padding([4, 6])
+        .width(Length::Fixed(28.0))
         .on_press(Message::SelectionRequested(Some(Selection::Node(node_id)))),
-        row![
-            coordinate_input(node_id, CoordinateAxis::X, x, node_coordinate_edits),
-            coordinate_input(node_id, CoordinateAxis::Y, y, node_coordinate_edits),
-            coordinate_input(node_id, CoordinateAxis::Z, z, node_coordinate_edits),
-        ]
-        .spacing(6)
-        .width(Fill),
+        coordinate_input(node_id, CoordinateAxis::X, x, node_coordinate_edits),
+        coordinate_input(node_id, CoordinateAxis::Y, y, node_coordinate_edits),
+        coordinate_input(node_id, CoordinateAxis::Z, z, node_coordinate_edits),
     ]
-    .spacing(6);
+    .spacing(6)
+    .align_y(Alignment::Center);
 
     container(content)
-        .padding([6, 8])
+        .padding([4, 6])
         .width(Fill)
         .style(theme::neutral_row)
         .into()
