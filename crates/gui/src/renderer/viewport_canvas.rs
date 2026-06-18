@@ -1,3 +1,4 @@
+use bajrang_core::post::diagrams::DiagramKind;
 use iced::mouse;
 use iced::widget::canvas;
 use iced::{
@@ -183,6 +184,7 @@ impl canvas::Program<ViewportEvent> for ViewportCanvas<'_> {
         draw_axes(&mut frame, bounds, self.viewport);
         self.draw_deformed_members(&mut frame, bounds);
         self.draw_members(&mut frame, bounds);
+        self.draw_member_diagrams(&mut frame, bounds);
         self.draw_loads(&mut frame, bounds);
         self.draw_supports(&mut frame, bounds);
         self.draw_nodes(&mut frame, bounds);
@@ -447,18 +449,112 @@ impl ViewportCanvas<'_> {
         }
     }
 
+    fn draw_member_diagrams(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        let Some(kind) = diagram_kind(self.result_display) else {
+            return;
+        };
+        let Some(summary) = self.summary() else {
+            return;
+        };
+
+        let max_value = match kind {
+            DiagramKind::ShearY => summary.max_shear,
+            DiagramKind::MomentZ => summary.max_moment,
+        };
+        if max_value <= f64::EPSILON {
+            return;
+        }
+
+        let color = match kind {
+            DiagramKind::ShearY => theme::ACCENT,
+            DiagramKind::MomentZ => Color::from_rgb(0.992, 0.722, 0.286),
+        };
+
+        for diagram in summary
+            .member_diagrams
+            .iter()
+            .filter(|diagram| diagram.kind == kind)
+        {
+            let Some(element) = self.model.element(diagram.element_id) else {
+                continue;
+            };
+            let (_, node_i, node_j) = element_data(element);
+            let Some(ni) = self.model.node(node_i) else {
+                continue;
+            };
+            let Some(nj) = self.model.node(node_j) else {
+                continue;
+            };
+
+            let a = self.node_screen_position(ni, bounds);
+            let b = self.node_screen_position(nj, bounds);
+            let axis = b - a;
+            let screen_length = vector_length(axis);
+            if screen_length <= f32::EPSILON || diagram.length <= f64::EPSILON {
+                continue;
+            }
+
+            let unit = axis * (1.0 / screen_length);
+            let normal = Vector::new(-unit.y, unit.x);
+            let diagram_points = diagram
+                .points
+                .iter()
+                .map(|point| {
+                    let along = (point.x / diagram.length) as f32 * screen_length;
+                    let offset = (point.value / max_value * self.result_scale) as f32;
+                    a + unit * along + normal * offset
+                })
+                .collect::<Vec<_>>();
+
+            if diagram_points.len() < 2 {
+                continue;
+            }
+
+            let path = canvas::Path::new(|builder| {
+                builder.move_to(diagram_points[0]);
+                for point in diagram_points.iter().skip(1) {
+                    builder.line_to(*point);
+                }
+            });
+
+            frame.stroke(
+                &path,
+                canvas::Stroke {
+                    style: canvas::Style::Solid(color),
+                    width: 2.0,
+                    ..canvas::Stroke::default()
+                },
+            );
+
+            frame.stroke(
+                &canvas::Path::line(a, b),
+                canvas::Stroke {
+                    style: canvas::Style::Solid(Color::from_rgba(color.r, color.g, color.b, 0.42)),
+                    width: 1.0,
+                    ..canvas::Stroke::default()
+                },
+            );
+
+            if let Some((point, value)) = diagram_peak(&diagram_points, diagram) {
+                label(
+                    frame,
+                    diagram_value_label(kind, value),
+                    point + normal * 14.0,
+                    color,
+                    11.0,
+                    88.0,
+                );
+            }
+        }
+    }
+
     fn draw_result_legend(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
         if self.result_display == ResultDisplay::Model {
             return;
         }
 
         let label_text = match self.summary() {
-            Some(summary) => format!(
-                "{}  |  scale {:.0} px  |  max |u| {:.2e} m",
-                self.result_display.label(),
-                self.result_scale,
-                summary.max_displacement
-            ),
+            Some(summary) => result_legend_text(self.result_display, self.result_scale, summary),
             None => "Solve model to view results".to_string(),
         };
 
@@ -660,6 +756,70 @@ fn reaction_direction(dof: Dof) -> Option<Vector> {
         Dof::Ux => Some(Vector::new(1.0, 0.0)),
         Dof::Uy => Some(Vector::new(0.0, -1.0)),
         Dof::Uz | Dof::Rx | Dof::Ry | Dof::Rz => None,
+    }
+}
+
+fn diagram_kind(display: ResultDisplay) -> Option<DiagramKind> {
+    match display {
+        ResultDisplay::ShearForce => Some(DiagramKind::ShearY),
+        ResultDisplay::BendingMoment => Some(DiagramKind::MomentZ),
+        ResultDisplay::Model
+        | ResultDisplay::Deformed
+        | ResultDisplay::Displacements
+        | ResultDisplay::Reactions
+        | ResultDisplay::MemberForces
+        | ResultDisplay::Combined => None,
+    }
+}
+
+fn diagram_peak<'a>(
+    screen_points: &'a [Point],
+    diagram: &bajrang_core::post::diagrams::MemberDiagram,
+) -> Option<(Point, f64)> {
+    let (index, point) = diagram
+        .points
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.value.abs().total_cmp(&b.value.abs()))?;
+
+    Some((*screen_points.get(index)?, point.value))
+}
+
+fn diagram_value_label(kind: DiagramKind, value: f64) -> String {
+    match kind {
+        DiagramKind::ShearY => format!("{:+.2} kN", value / 1000.0),
+        DiagramKind::MomentZ => format!("{:+.2} kN m", value / 1000.0),
+    }
+}
+
+fn result_legend_text(
+    display: ResultDisplay,
+    scale: f64,
+    summary: &crate::state::AnalysisSummary,
+) -> String {
+    match display {
+        ResultDisplay::ShearForce => {
+            format!(
+                "Shear  |  scale {scale:.0} px  |  max |V| {:.2} kN",
+                summary.max_shear / 1000.0
+            )
+        }
+        ResultDisplay::BendingMoment => {
+            format!(
+                "Moment  |  scale {scale:.0} px  |  max |M| {:.2} kN m",
+                summary.max_moment / 1000.0
+            )
+        }
+        ResultDisplay::Model
+        | ResultDisplay::Deformed
+        | ResultDisplay::Displacements
+        | ResultDisplay::Reactions
+        | ResultDisplay::MemberForces
+        | ResultDisplay::Combined => format!(
+            "{}  |  scale {scale:.0} px  |  max |u| {:.2e} m",
+            display.label(),
+            summary.max_displacement
+        ),
     }
 }
 

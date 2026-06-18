@@ -93,6 +93,11 @@ fn analysis_panel<'a>(
                     "Max member",
                     format!("{:.3} kN", summary.max_member_force / 1000.0)
                 ),
+                property("Max |V|", format!("{:.3} kN", summary.max_shear / 1000.0)),
+                property(
+                    "Max |M|",
+                    format!("{:.3} kN m", summary.max_moment / 1000.0)
+                ),
             ];
 
             if let Some(Selection::Node(node_id)) = selection {

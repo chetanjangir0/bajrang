@@ -15,6 +15,7 @@ use crate::{
         apply_boundary_conditions, assemble_global_stiffness, assemble_load_vector,
         boundary_conditions::constrained_dofs_from_supports, inactive_dofs,
     },
+    post::diagrams::{self, MemberDiagram},
     solver::{self, SolverError},
 };
 
@@ -46,6 +47,7 @@ pub struct Beam2DResults {
     pub displacements: Vec<f64>,
     pub support_reactions: Vec<SupportReaction>,
     pub member_end_forces: Vec<[f64; 4]>,
+    pub member_diagrams: Vec<MemberDiagram>,
 }
 
 /// Results from a 3D beam analysis.
@@ -62,6 +64,7 @@ pub struct Frame2DResults {
     pub displacements: Vec<f64>,
     pub support_reactions: Vec<SupportReaction>,
     pub member_end_forces: Vec<[f64; 6]>,
+    pub member_diagrams: Vec<MemberDiagram>,
 }
 
 /// Results from a 3D frame analysis.
@@ -78,6 +81,7 @@ pub struct Mixed2DResults {
     pub displacements: Vec<f64>,
     pub support_reactions: Vec<SupportReaction>,
     pub member_results: Vec<ElementResult>,
+    pub member_diagrams: Vec<MemberDiagram>,
 }
 
 /// Reaction at a constrained support DOF.
@@ -150,18 +154,21 @@ pub fn run_beam2d(
     let (displacements, support_reactions) =
         solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
-    let member_end_forces = elements
+    let member_end_forces: Vec<[f64; 4]> = elements
         .iter()
         .map(|element| {
             let forces = element.end_forces(nodes, &displacements);
             [forces[0], forces[1], forces[2], forces[3]]
         })
         .collect();
+    let member_diagrams =
+        diagrams::beam2d_diagrams(nodes, elements, &member_end_forces, distributed_loads, 33);
 
     Ok(Beam2DResults {
         displacements,
         support_reactions,
         member_end_forces,
+        member_diagrams,
     })
 }
 
@@ -175,7 +182,7 @@ pub fn run_frame2d(
     let (displacements, support_reactions) =
         solve_displacements(nodes, elements, supports, loads, distributed_loads)?;
 
-    let member_end_forces = elements
+    let member_end_forces: Vec<[f64; 6]> = elements
         .iter()
         .map(|element| {
             let forces = element.end_forces(nodes, &displacements);
@@ -184,11 +191,14 @@ pub fn run_frame2d(
             ]
         })
         .collect();
+    let member_diagrams =
+        diagrams::frame2d_diagrams(nodes, elements, &member_end_forces, distributed_loads, 33);
 
     Ok(Frame2DResults {
         displacements,
         support_reactions,
         member_end_forces,
+        member_diagrams,
     })
 }
 
@@ -258,7 +268,7 @@ pub fn run_mixed(
     let (displacements, support_reactions) =
         solve_displacements(nodes, elements, supports, nodal_loads, distributed_loads)?;
 
-    let member_results = elements
+    let member_results: Vec<ElementResult> = elements
         .iter()
         .map(|element| match element {
             StructuralElement::Truss2D(truss) => ElementResult::Truss2D {
@@ -301,11 +311,14 @@ pub fn run_mixed(
             }
         })
         .collect();
+    let member_diagrams =
+        diagrams::mixed_2d_diagrams(nodes, elements, &member_results, distributed_loads, 33);
 
     Ok(Mixed2DResults {
         displacements,
         support_reactions,
         member_results,
+        member_diagrams,
     })
 }
 

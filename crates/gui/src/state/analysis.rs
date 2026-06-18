@@ -1,5 +1,6 @@
 use super::{StructuralModel, element_id, element_kind};
 use bajrang_core::analysis::linear_static::{self, ElementResult, SupportReaction};
+use bajrang_core::post::diagrams::{DiagramKind, MemberDiagram};
 use model::elements::StructuralElement;
 
 #[derive(Debug, Clone)]
@@ -17,8 +18,11 @@ pub struct AnalysisSummary {
     pub displacements: Vec<f64>,
     pub reactions: Vec<SupportReaction>,
     pub member_results: Vec<MemberResultSummary>,
+    pub member_diagrams: Vec<MemberDiagram>,
     pub max_reaction: f64,
     pub max_member_force: f64,
+    pub max_shear: f64,
+    pub max_moment: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -36,16 +40,20 @@ pub enum ResultDisplay {
     Displacements,
     Reactions,
     MemberForces,
+    ShearForce,
+    BendingMoment,
     Combined,
 }
 
 impl ResultDisplay {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 8] = [
         Self::Model,
         Self::Deformed,
         Self::Displacements,
         Self::Reactions,
         Self::MemberForces,
+        Self::ShearForce,
+        Self::BendingMoment,
         Self::Combined,
     ];
 
@@ -56,6 +64,8 @@ impl ResultDisplay {
             Self::Displacements => "Displacements",
             Self::Reactions => "Reactions",
             Self::MemberForces => "Forces",
+            Self::ShearForce => "Shear",
+            Self::BendingMoment => "Moment",
             Self::Combined => "Combined",
         }
     }
@@ -85,6 +95,8 @@ pub fn run_basic_analysis(model: &StructuralModel) -> Result<AnalysisSummary, St
         .zip(results.member_results.iter())
         .map(|(element, result)| member_result_summary(element, result))
         .collect::<Vec<_>>();
+    let max_shear = max_diagram_abs(&results.member_diagrams, DiagramSelector::Shear);
+    let max_moment = max_diagram_abs(&results.member_diagrams, DiagramSelector::Moment);
 
     Ok(AnalysisSummary {
         max_displacement: max_abs(&results.displacements),
@@ -100,6 +112,9 @@ pub fn run_basic_analysis(model: &StructuralModel) -> Result<AnalysisSummary, St
         displacements: results.displacements,
         reactions: results.support_reactions,
         member_results,
+        member_diagrams: results.member_diagrams,
+        max_shear,
+        max_moment,
     })
 }
 
@@ -107,6 +122,24 @@ fn max_abs(values: &[f64]) -> f64 {
     values
         .iter()
         .fold(0.0, |max, value| f64::max(max, value.abs()))
+}
+
+enum DiagramSelector {
+    Shear,
+    Moment,
+}
+
+fn max_diagram_abs(diagrams: &[MemberDiagram], selector: DiagramSelector) -> f64 {
+    diagrams
+        .iter()
+        .filter(|diagram| {
+            matches!(
+                (&selector, diagram.kind),
+                (DiagramSelector::Shear, DiagramKind::ShearY)
+                    | (DiagramSelector::Moment, DiagramKind::MomentZ)
+            )
+        })
+        .fold(0.0, |max, diagram| f64::max(max, diagram.max_abs_value()))
 }
 
 fn member_result_summary(
