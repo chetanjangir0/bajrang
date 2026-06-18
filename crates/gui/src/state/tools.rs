@@ -5,15 +5,17 @@ pub enum WorkspaceTool {
     DrawMember,
     AssignLoad,
     AssignSupport,
+    Analyze,
 }
 
 impl WorkspaceTool {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Select,
         Self::AddNode,
         Self::DrawMember,
         Self::AssignLoad,
         Self::AssignSupport,
+        Self::Analyze,
     ];
 
     pub fn label(self) -> &'static str {
@@ -23,6 +25,7 @@ impl WorkspaceTool {
             Self::DrawMember => "Member",
             Self::AssignLoad => "Load",
             Self::AssignSupport => "Support",
+            Self::Analyze => "Analyze",
         }
     }
 
@@ -33,6 +36,7 @@ impl WorkspaceTool {
             Self::DrawMember => "M",
             Self::AssignLoad => "F",
             Self::AssignSupport => "P",
+            Self::Analyze => "A",
         }
     }
 }

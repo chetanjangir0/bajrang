@@ -105,6 +105,13 @@ impl ModelTreeFilter {
                 show_supports: true,
                 show_loads: false,
             },
+            WorkspaceTool::Analyze => Self {
+                tool,
+                show_nodes: true,
+                show_members: true,
+                show_supports: true,
+                show_loads: true,
+            },
         }
     }
 
@@ -115,6 +122,7 @@ impl ModelTreeFilter {
             WorkspaceTool::DrawMember => "Members",
             WorkspaceTool::AssignLoad => "Loads",
             WorkspaceTool::AssignSupport => "Supports",
+            WorkspaceTool::Analyze => "Model",
         }
     }
 

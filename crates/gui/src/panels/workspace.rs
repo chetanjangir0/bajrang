@@ -1,4 +1,4 @@
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{column, container, row, text};
 use iced::{Alignment, Element, Fill, Length};
 
 use crate::{
@@ -39,14 +39,7 @@ pub fn view<'a>(
 
     container(
         column![
-            header(
-                tool,
-                selection,
-                viewport,
-                analysis,
-                result_display,
-                result_scale,
-            ),
+            header(tool, selection, viewport, analysis, result_display),
             container(canvas)
                 .width(Fill)
                 .height(Fill)
@@ -65,7 +58,6 @@ fn header(
     viewport: ViewportState,
     analysis: &AnalysisState,
     result_display: ResultDisplay,
-    result_scale: f64,
 ) -> Element<'static, Message> {
     let selection = selection.map_or_else(|| "None".to_string(), Selection::label);
     let solved = matches!(analysis, AnalysisState::Success(_));
@@ -75,48 +67,12 @@ fn header(
         "Unsolved".to_string()
     };
 
-    let modes = ResultDisplay::ALL
-        .into_iter()
-        .fold(row![].spacing(4), |row, display| {
-            let mut control = button(text(display.label()).size(12))
-                .padding([6, 9])
-                .style(if display == result_display {
-                    theme::tool_button_active
-                } else {
-                    theme::secondary_button
-                });
-
-            if solved || !display.needs_results() {
-                control = control.on_press(Message::ResultDisplaySelected(display));
-            }
-
-            row.push(control)
-        });
-
-    let scale_controls = row![
-        button(text("-").size(14))
-            .padding([6, 10])
-            .style(theme::secondary_button)
-            .on_press(Message::ResultScaleChanged(result_scale - 20.0)),
-        text(format!("{result_scale:.0} px"))
-            .size(13)
-            .color(theme::TEXT_MUTED),
-        button(text("+").size(14))
-            .padding([6, 10])
-            .style(theme::secondary_button)
-            .on_press(Message::ResultScaleChanged(result_scale + 20.0)),
-    ]
-    .spacing(6)
-    .align_y(Alignment::Center);
-
     container(
         row![
             text("Workspace").size(15).color(theme::TEXT),
             text(tool.label()).size(14).color(theme::TEXT_MUTED),
             text(selection).size(14).color(theme::TEXT_MUTED),
             text(result_label).size(14).color(theme::TEXT_MUTED),
-            modes,
-            scale_controls,
             text(format!("{:.0}%", viewport.zoom / 58.0 * 100.0))
                 .size(14)
                 .color(theme::TEXT_MUTED)

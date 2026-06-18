@@ -219,19 +219,29 @@ impl BajrangApp {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let sidebar = container(scrollable(panels::model_tree::view(
-            &self.model,
-            self.selection,
-            self.tool,
-            self.draft,
-            &self.node_coordinate_edits,
-            &self.member_endpoint_edits,
-            &self.load_edits,
-            &self.support_edits,
-        )))
-        .width(292)
-        .height(Fill)
-        .style(theme::panel);
+        let sidebar_content = match self.tool {
+            WorkspaceTool::Analyze => panels::analysis::view(
+                &self.model,
+                &self.analysis,
+                self.result_display,
+                self.result_scale,
+            ),
+            _ => panels::model_tree::view(
+                &self.model,
+                self.selection,
+                self.tool,
+                self.draft,
+                &self.node_coordinate_edits,
+                &self.member_endpoint_edits,
+                &self.load_edits,
+                &self.support_edits,
+            ),
+        };
+
+        let sidebar = container(scrollable(sidebar_content))
+            .width(292)
+            .height(Fill)
+            .style(theme::panel);
 
         let workspace = panels::workspace::view(
             &self.model,
@@ -248,8 +258,6 @@ impl BajrangApp {
             &self.model,
             self.selection,
             &self.analysis,
-            self.result_display,
-            self.result_scale,
         )))
         .width(332)
         .height(Fill)
@@ -325,10 +333,6 @@ impl BajrangApp {
                         .padding([8, 14])
                         .style(theme::secondary_button)
                         .on_press(Message::FitView),
-                    button(text("Solve").size(15))
-                        .padding([9, 18])
-                        .style(theme::primary_button)
-                        .on_press(Message::SolveRequested),
                 ]
                 .spacing(6)
                 .align_y(Alignment::Center)
@@ -376,7 +380,7 @@ impl BajrangApp {
 
     fn handle_viewport_press(&mut self, press: ViewportPress) {
         match self.tool {
-            WorkspaceTool::Select => {
+            WorkspaceTool::Select | WorkspaceTool::Analyze => {
                 self.selection = press.target;
                 self.draft.clear();
                 self.set_status(

@@ -5,8 +5,8 @@ use model::dof::Dof;
 use crate::{
     app::Message,
     state::{
-        AnalysisState, ResultDisplay, Selection, StructuralModel, dof_label, element_data,
-        element_kind, member_length,
+        AnalysisState, Selection, StructuralModel, dof_label, element_data, element_kind,
+        member_length,
     },
     theme,
 };
@@ -15,14 +15,11 @@ pub fn view<'a>(
     model: &'a StructuralModel,
     selection: Option<Selection>,
     analysis: &'a AnalysisState,
-    result_display: ResultDisplay,
-    result_scale: f64,
 ) -> Element<'a, Message> {
     column![
         text("Inspector").size(18).color(theme::TEXT),
         selection_panel(model, selection),
         analysis_panel(model, analysis, selection),
-        results_panel(analysis, result_display, result_scale),
     ]
     .spacing(16)
     .padding(14)
@@ -115,24 +112,6 @@ fn analysis_panel<'a>(
             column![text(error).size(14).color(theme::LOAD).width(Fill)],
         ),
     }
-}
-
-fn results_panel(
-    analysis: &AnalysisState,
-    result_display: ResultDisplay,
-    result_scale: f64,
-) -> Element<'_, Message> {
-    let solved = matches!(analysis, AnalysisState::Success(_));
-    let status = if solved { "Solved" } else { "Not solved" };
-
-    panel(
-        "Results",
-        column![
-            property("Status", status.to_string()),
-            property("View", result_display.label().to_string()),
-            property("Scale", format!("{result_scale:.0} px")),
-        ],
-    )
 }
 
 fn node_results(summary: &crate::state::AnalysisSummary, node_id: usize) -> Element<'_, Message> {
