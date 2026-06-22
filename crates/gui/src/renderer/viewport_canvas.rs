@@ -511,27 +511,55 @@ impl ViewportCanvas<'_> {
                 continue;
             }
 
-            let path = canvas::Path::new(|builder| {
+            let baseline = canvas::Path::line(a, b);
+            let diagram_area = canvas::Path::new(|builder| {
+                builder.move_to(a);
+                builder.line_to(diagram_points[0]);
+                for point in diagram_points.iter().skip(1) {
+                    builder.line_to(*point);
+                }
+                builder.line_to(b);
+                builder.line_to(a);
+            });
+            let diagram_path = canvas::Path::new(|builder| {
                 builder.move_to(diagram_points[0]);
                 for point in diagram_points.iter().skip(1) {
                     builder.line_to(*point);
                 }
             });
 
+            frame.fill(
+                &diagram_area,
+                Color::from_rgba(color.r, color.g, color.b, 0.13),
+            );
+
             frame.stroke(
-                &path,
+                &baseline,
                 canvas::Stroke {
-                    style: canvas::Style::Solid(color),
-                    width: 2.0,
+                    style: canvas::Style::Solid(Color::from_rgba(color.r, color.g, color.b, 0.42)),
+                    width: 1.0,
                     ..canvas::Stroke::default()
                 },
             );
 
+            for (base, point) in [(a, diagram_points[0]), (b, *diagram_points.last().unwrap())] {
+                frame.stroke(
+                    &canvas::Path::line(base, point),
+                    canvas::Stroke {
+                        style: canvas::Style::Solid(Color::from_rgba(
+                            color.r, color.g, color.b, 0.62,
+                        )),
+                        width: 1.2,
+                        ..canvas::Stroke::default()
+                    },
+                );
+            }
+
             frame.stroke(
-                &canvas::Path::line(a, b),
+                &diagram_path,
                 canvas::Stroke {
-                    style: canvas::Style::Solid(Color::from_rgba(color.r, color.g, color.b, 0.42)),
-                    width: 1.0,
+                    style: canvas::Style::Solid(color),
+                    width: 2.0,
                     ..canvas::Stroke::default()
                 },
             );
