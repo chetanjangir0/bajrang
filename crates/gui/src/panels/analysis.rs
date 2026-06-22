@@ -99,7 +99,7 @@ fn visualization_panel(
                 slider(0.0..=400.0, result_scale, Message::ResultScaleChanged)
                     .step(10.0)
                     .width(Fill),
-                text(format!("{result_scale:.0} px"))
+                text(format!("{result_scale:.0}"))
                     .size(13)
                     .color(theme::TEXT)
                     .width(Length::Fixed(54.0)),

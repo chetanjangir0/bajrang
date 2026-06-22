@@ -204,7 +204,7 @@ impl BajrangApp {
                 self.result_scale = scale.clamp(0.0, 400.0);
                 self.set_status(
                     StatusLevel::Neutral,
-                    format!("Result scale {:.0} px", self.result_scale),
+                    format!("Result scale {:.0}", self.result_scale),
                 );
             }
             Message::FocusNextInput => {

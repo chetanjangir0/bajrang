@@ -12,7 +12,7 @@ use crate::{
         dof_label, element_data, element_kind,
     },
     theme,
-    viewport::{ViewportEvent, ViewportPress, ViewportState, ViewportUpdate},
+    viewport::{DEFAULT_ZOOM, ViewportEvent, ViewportPress, ViewportState, ViewportUpdate},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -496,12 +496,13 @@ impl ViewportCanvas<'_> {
 
             let unit = axis * (1.0 / screen_length);
             let normal = Vector::new(-unit.y, unit.x);
+            let result_scale = self.result_screen_scale();
             let diagram_points = diagram
                 .points
                 .iter()
                 .map(|point| {
                     let along = (point.x / diagram.length) as f32 * screen_length;
-                    let offset = (point.value / max_value * self.result_scale) as f32;
+                    let offset = (point.value / max_value) as f32 * result_scale;
                     a + unit * along + normal * offset
                 })
                 .collect::<Vec<_>>();
@@ -603,10 +604,16 @@ impl ViewportCanvas<'_> {
 
         let ux = displacement(summary, node_id, Dof::Ux);
         let uy = displacement(summary, node_id, Dof::Uy);
+        let result_scale = self.result_screen_scale();
+
         Vector::new(
-            (ux / summary.max_displacement * self.result_scale) as f32,
-            -(uy / summary.max_displacement * self.result_scale) as f32,
+            (ux / summary.max_displacement) as f32 * result_scale,
+            -(uy / summary.max_displacement) as f32 * result_scale,
         )
+    }
+
+    fn result_screen_scale(&self) -> f32 {
+        self.result_scale as f32 * self.viewport.zoom / DEFAULT_ZOOM
     }
 
     fn member_force_color(&self, element_id: usize) -> Option<Color> {
@@ -800,13 +807,13 @@ fn result_legend_text(
     match display {
         ResultDisplay::ShearForce => {
             format!(
-                "Shear  |  scale {scale:.0} px  |  max |V| {:.2} kN",
+                "Shear  |  scale {scale:.0}  |  max |V| {:.2} kN",
                 summary.max_shear / 1000.0
             )
         }
         ResultDisplay::BendingMoment => {
             format!(
-                "Moment  |  scale {scale:.0} px  |  max |M| {:.2} kN m",
+                "Moment  |  scale {scale:.0}  |  max |M| {:.2} kN m",
                 summary.max_moment / 1000.0
             )
         }
@@ -816,7 +823,7 @@ fn result_legend_text(
         | ResultDisplay::Reactions
         | ResultDisplay::MemberForces
         | ResultDisplay::Combined => format!(
-            "{}  |  scale {scale:.0} px  |  max |u| {:.2e} m",
+            "{}  |  scale {scale:.0}  |  max |u| {:.2e} m",
             display.label(),
             summary.max_displacement
         ),

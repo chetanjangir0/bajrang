@@ -2,6 +2,8 @@ use iced::{Point, Rectangle};
 
 use crate::state::Selection;
 
+pub const DEFAULT_ZOOM: f32 = 58.0;
+
 #[derive(Debug, Clone, Copy)]
 pub struct ViewportState {
     pub zoom: f32,
@@ -12,7 +14,7 @@ pub struct ViewportState {
 impl Default for ViewportState {
     fn default() -> Self {
         Self {
-            zoom: 58.0,
+            zoom: DEFAULT_ZOOM,
             pan_x: 0.0,
             pan_y: 20.0,
         }
