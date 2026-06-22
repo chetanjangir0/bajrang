@@ -177,34 +177,41 @@ fn nodes<'a>(
     node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
 ) -> Element<'a, Message> {
     if model.nodes.is_empty() {
-        return empty_section("Nodes", "No nodes in this model");
+        return empty_section(
+            "Nodes",
+            "No nodes in this model",
+            add_message(editable, EntityKind::Node),
+        );
     }
 
     model
         .nodes
         .iter()
-        .fold(section("Nodes"), |column, node| {
-            let selected = selection == Some(Selection::Node(node.id));
-            let active_draft = draft.member_start == Some(node.id);
+        .fold(
+            section("Nodes", add_message(editable, EntityKind::Node)),
+            |column, node| {
+                let selected = selection == Some(Selection::Node(node.id));
+                let active_draft = draft.member_start == Some(node.id);
 
-            if editable {
-                column.push(editable_node_row(
-                    node.id,
-                    node.x,
-                    node.y,
-                    node.z,
-                    selected || active_draft,
-                    node_coordinate_edits,
-                ))
-            } else {
-                column.push(selectable_row(
-                    format!("N{}", node.id),
-                    format!("{:.2}, {:.2}", node.x, node.y),
-                    selected || active_draft,
-                    Selection::Node(node.id),
-                ))
-            }
-        })
+                if editable {
+                    column.push(editable_node_row(
+                        node.id,
+                        node.x,
+                        node.y,
+                        node.z,
+                        selected || active_draft,
+                        node_coordinate_edits,
+                    ))
+                } else {
+                    column.push(selectable_row(
+                        format!("N{}", node.id),
+                        format!("{:.2}, {:.2}", node.x, node.y),
+                        selected || active_draft,
+                        Selection::Node(node.id),
+                    ))
+                }
+            },
+        )
         .into()
 }
 
@@ -215,32 +222,39 @@ fn members<'a>(
     member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
 ) -> Element<'a, Message> {
     if model.elements.is_empty() {
-        return empty_section("Members", "No members in this model");
+        return empty_section(
+            "Members",
+            "No members in this model",
+            add_message(editable, EntityKind::Member),
+        );
     }
 
     model
         .elements
         .iter()
-        .fold(section("Members"), |column, element| {
-            let (id, node_i, node_j) = element_data(element);
+        .fold(
+            section("Members", add_message(editable, EntityKind::Member)),
+            |column, element| {
+                let (id, node_i, node_j) = element_data(element);
 
-            if editable {
-                column.push(editable_member_row(
-                    id,
-                    node_i,
-                    node_j,
-                    selection == Some(Selection::Element(element_id(element))),
-                    member_endpoint_edits,
-                ))
-            } else {
-                column.push(selectable_row(
-                    format!("M{id}"),
-                    format!("{}  N{}-N{}", element_kind(element), node_i, node_j),
-                    selection == Some(Selection::Element(element_id(element))),
-                    Selection::Element(id),
-                ))
-            }
-        })
+                if editable {
+                    column.push(editable_member_row(
+                        id,
+                        node_i,
+                        node_j,
+                        selection == Some(Selection::Element(element_id(element))),
+                        member_endpoint_edits,
+                    ))
+                } else {
+                    column.push(selectable_row(
+                        format!("M{id}"),
+                        format!("{}  N{}-N{}", element_kind(element), node_i, node_j),
+                        selection == Some(Selection::Element(element_id(element))),
+                        Selection::Element(id),
+                    ))
+                }
+            },
+        )
         .into()
 }
 
@@ -250,28 +264,35 @@ fn supports<'a>(
     support_edits: &'a BTreeMap<(usize, SupportField), String>,
 ) -> Element<'a, Message> {
     if model.supports.is_empty() {
-        return empty_section("Supports", "No supports assigned");
+        return empty_section(
+            "Supports",
+            "No supports assigned",
+            add_message(editable, EntityKind::Support),
+        );
     }
 
     model
         .supports
         .iter()
         .enumerate()
-        .fold(section("Supports"), |column, (index, support)| {
-            if editable {
-                column.push(editable_support_row(
-                    index,
-                    support.node_id,
-                    dof_label(support.dof),
-                    support_edits,
-                ))
-            } else {
-                column.push(static_row(
-                    format!("N{}", support.node_id),
-                    dof_label(support.dof).to_string(),
-                ))
-            }
-        })
+        .fold(
+            section("Supports", add_message(editable, EntityKind::Support)),
+            |column, (index, support)| {
+                if editable {
+                    column.push(editable_support_row(
+                        index,
+                        support.node_id,
+                        dof_label(support.dof),
+                        support_edits,
+                    ))
+                } else {
+                    column.push(static_row(
+                        format!("N{}", support.node_id),
+                        dof_label(support.dof).to_string(),
+                    ))
+                }
+            },
+        )
         .into()
 }
 
@@ -281,29 +302,36 @@ fn loads<'a>(
     load_edits: &'a BTreeMap<(usize, LoadField), String>,
 ) -> Element<'a, Message> {
     if model.nodal_loads.is_empty() {
-        return empty_section("Loads", "No nodal loads assigned");
+        return empty_section(
+            "Loads",
+            "No nodal loads assigned",
+            add_message(editable, EntityKind::Load),
+        );
     }
 
     model
         .nodal_loads
         .iter()
         .enumerate()
-        .fold(section("Loads"), |column, (index, load)| {
-            if editable {
-                column.push(editable_load_row(
-                    index,
-                    load.node_id,
-                    dof_label(load.dof),
-                    load.magnitude / 1000.0,
-                    load_edits,
-                ))
-            } else {
-                column.push(static_row(
-                    format!("N{}", load.node_id),
-                    format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
-                ))
-            }
-        })
+        .fold(
+            section("Loads", add_message(editable, EntityKind::Load)),
+            |column, (index, load)| {
+                if editable {
+                    column.push(editable_load_row(
+                        index,
+                        load.node_id,
+                        dof_label(load.dof),
+                        load.magnitude / 1000.0,
+                        load_edits,
+                    ))
+                } else {
+                    column.push(static_row(
+                        format!("N{}", load.node_id),
+                        format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
+                    ))
+                }
+            },
+        )
         .into()
 }
 
@@ -311,14 +339,16 @@ fn panel_title(label: &str) -> Element<'_, Message> {
     text(label).size(18).color(theme::TEXT).into()
 }
 
-fn section(label: &str) -> iced::widget::Column<'_, Message> {
-    column![text(label).size(13).color(theme::TEXT_MUTED)]
-        .spacing(4)
-        .width(Fill)
+fn section(label: &str, add: Option<Message>) -> iced::widget::Column<'_, Message> {
+    column![section_header(label, add)].spacing(4).width(Fill)
 }
 
-fn empty_section(title: &'static str, message: &'static str) -> Element<'static, Message> {
-    section(title)
+fn empty_section(
+    title: &'static str,
+    message: &'static str,
+    add: Option<Message>,
+) -> Element<'static, Message> {
+    section(title, add)
         .push(
             container(text(message).size(13).color(theme::TEXT_MUTED).width(Fill))
                 .padding([7, 8])
@@ -326,6 +356,40 @@ fn empty_section(title: &'static str, message: &'static str) -> Element<'static,
                 .style(theme::neutral_row),
         )
         .into()
+}
+
+fn section_header(label: &str, add: Option<Message>) -> Element<'_, Message> {
+    let mut header = row![text(label).size(13).color(theme::TEXT_MUTED).width(Fill),]
+        .spacing(6)
+        .align_y(Alignment::Center);
+
+    if let Some(message) = add {
+        header = header.push(
+            button(text("+").size(14).color(theme::TEXT))
+                .padding([2, 8])
+                .style(theme::secondary_button)
+                .on_press(message),
+        );
+    }
+
+    header.into()
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EntityKind {
+    Node,
+    Member,
+    Load,
+    Support,
+}
+
+fn add_message(editable: bool, kind: EntityKind) -> Option<Message> {
+    editable.then(|| match kind {
+        EntityKind::Node => Message::AddNodeRequested,
+        EntityKind::Member => Message::AddMemberRequested,
+        EntityKind::Load => Message::AddLoadRequested,
+        EntityKind::Support => Message::AddSupportRequested,
+    })
 }
 
 fn metric_row(label: &str, value: usize) -> Element<'_, Message> {
@@ -391,6 +455,7 @@ fn editable_node_row(
         coordinate_input(node_id, CoordinateAxis::X, x, node_coordinate_edits),
         coordinate_input(node_id, CoordinateAxis::Y, y, node_coordinate_edits),
         coordinate_input(node_id, CoordinateAxis::Z, z, node_coordinate_edits),
+        delete_button(Message::DeleteNodeRequested(node_id)),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -438,6 +503,7 @@ fn editable_member_row(
             node_j,
             member_endpoint_edits
         ),
+        delete_button(Message::DeleteMemberRequested(element_id)),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -469,6 +535,7 @@ fn editable_load_row(
             coordinate_value(magnitude_kn),
             load_edits
         ),
+        delete_button(Message::DeleteLoadRequested(index)),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -498,6 +565,7 @@ fn editable_support_row(
             support_edits
         ),
         support_input(index, SupportField::Dof, dof.to_string(), support_edits),
+        delete_button(Message::DeleteSupportRequested(index)),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -606,6 +674,15 @@ fn support_input(
         .size(13)
         .width(Length::Fill)
         .style(theme::compact_input)
+        .into()
+}
+
+fn delete_button(message: Message) -> Element<'static, Message> {
+    button(text("x").size(13).color(theme::TEXT))
+        .padding([4, 7])
+        .width(Length::Fixed(28.0))
+        .style(theme::secondary_button)
+        .on_press(message)
         .into()
 }
 

@@ -70,6 +70,14 @@ pub enum Message {
     SupportSubmitted {
         index: usize,
     },
+    AddNodeRequested,
+    AddMemberRequested,
+    AddLoadRequested,
+    AddSupportRequested,
+    DeleteNodeRequested(usize),
+    DeleteMemberRequested(usize),
+    DeleteLoadRequested(usize),
+    DeleteSupportRequested(usize),
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
     SolveRequested,
@@ -177,6 +185,14 @@ impl BajrangApp {
                 self.support_edits.insert((index, field), value);
             }
             Message::SupportSubmitted { index } => self.handle_support_submit(index),
+            Message::AddNodeRequested => self.add_node_from_tree(),
+            Message::AddMemberRequested => self.add_member_from_tree(),
+            Message::AddLoadRequested => self.add_load_from_tree(),
+            Message::AddSupportRequested => self.add_support_from_tree(),
+            Message::DeleteNodeRequested(node_id) => self.delete_node(node_id),
+            Message::DeleteMemberRequested(element_id) => self.delete_member(element_id),
+            Message::DeleteLoadRequested(index) => self.delete_load(index),
+            Message::DeleteSupportRequested(index) => self.delete_support(index),
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
@@ -398,6 +414,142 @@ impl BajrangApp {
             WorkspaceTool::DrawMember => self.handle_member_press(press.target),
             WorkspaceTool::AssignLoad => self.handle_load_press(press.target),
             WorkspaceTool::AssignSupport => self.handle_support_press(press.target),
+        }
+    }
+
+    fn add_node_from_tree(&mut self) {
+        let id = self.model.add_default_node();
+        self.selection = Some(Selection::Node(id));
+        self.draft.clear();
+        self.analysis = AnalysisState::Idle;
+        self.set_status(StatusLevel::Success, format!("Node {id} added"));
+    }
+
+    fn add_member_from_tree(&mut self) {
+        let result = if let Some(start) = self.draft.member_start {
+            let next_node = self
+                .model
+                .nodes
+                .iter()
+                .find(|node| node.id != start)
+                .map(|node| node.id);
+
+            if let Some(node_id) = next_node {
+                self.model.add_frame_member(start, node_id)
+            } else {
+                self.model.add_default_frame_member()
+            }
+        } else {
+            self.model.add_default_frame_member()
+        };
+
+        match result {
+            Ok(id) => {
+                self.selection = Some(Selection::Element(id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Member {id} added"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn add_load_from_tree(&mut self) {
+        let node_id = match self.selection {
+            Some(Selection::Node(node_id)) => Some(node_id),
+            _ => self.model.nodes.first().map(|node| node.id),
+        };
+
+        let result = match node_id {
+            Some(node_id) => self.model.add_default_load(node_id),
+            None => self.model.add_default_load_to_first_node(),
+        };
+
+        match result {
+            Ok(index) => {
+                let node_id = self.model.nodal_loads[index].node_id;
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Load {index} added"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn add_support_from_tree(&mut self) {
+        let node_id = match self.selection {
+            Some(Selection::Node(node_id)) => Some(node_id),
+            _ => self.model.nodes.first().map(|node| node.id),
+        };
+
+        let result = match node_id {
+            Some(node_id) => self.model.assign_pin_support(node_id),
+            None => self.model.assign_pin_support_to_first_node(),
+        };
+
+        match result {
+            Ok(index) => {
+                let node_id = self.model.supports[index].node_id;
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Support {index} added"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn delete_node(&mut self, node_id: usize) {
+        match self.model.remove_node(node_id) {
+            Ok(()) => {
+                self.selection = None;
+                self.draft.clear();
+                self.clear_edit_drafts();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Node {node_id} deleted"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn delete_member(&mut self, element_id: usize) {
+        match self.model.remove_element(element_id) {
+            Ok(()) => {
+                if self.selection == Some(Selection::Element(element_id)) {
+                    self.selection = None;
+                }
+                self.draft.clear();
+                self.member_endpoint_edits
+                    .retain(|(id, _), _| *id != element_id);
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Member {element_id} deleted"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn delete_load(&mut self, index: usize) {
+        match self.model.remove_nodal_load(index) {
+            Ok(()) => {
+                self.load_edits.clear();
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Load {index} deleted"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn delete_support(&mut self, index: usize) {
+        match self.model.remove_support(index) {
+            Ok(()) => {
+                self.support_edits.clear();
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(StatusLevel::Success, format!("Support {index} deleted"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
         }
     }
 
@@ -646,13 +798,17 @@ impl BajrangApp {
             return;
         };
 
-        self.model.add_default_load(node_id);
-        self.selection = Some(Selection::Node(node_id));
-        self.analysis = AnalysisState::Idle;
-        self.set_status(
-            StatusLevel::Success,
-            format!("Load assigned to node {node_id}"),
-        );
+        match self.model.add_default_load(node_id) {
+            Ok(_) => {
+                self.selection = Some(Selection::Node(node_id));
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Load assigned to node {node_id}"),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
     }
 
     fn handle_support_press(&mut self, target: Option<Selection>) {
@@ -661,13 +817,17 @@ impl BajrangApp {
             return;
         };
 
-        self.model.assign_pin_support(node_id);
-        self.selection = Some(Selection::Node(node_id));
-        self.analysis = AnalysisState::Idle;
-        self.set_status(
-            StatusLevel::Success,
-            format!("Pin support assigned to node {node_id}"),
-        );
+        match self.model.assign_pin_support(node_id) {
+            Ok(_) => {
+                self.selection = Some(Selection::Node(node_id));
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Pin support assigned to node {node_id}"),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
     }
 
     fn solve(&mut self) {

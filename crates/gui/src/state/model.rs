@@ -81,6 +81,31 @@ impl StructuralModel {
         id
     }
 
+    pub fn add_default_node(&mut self) -> usize {
+        let (x, y) = self
+            .nodes
+            .last()
+            .map_or((0.0, 0.0), |node| (node.x + 1.0, node.y));
+
+        self.add_node(x, y)
+    }
+
+    pub fn remove_node(&mut self, node_id: usize) -> Result<(), String> {
+        let Some(index) = self.nodes.iter().position(|node| node.id == node_id) else {
+            return Err(format!("Node {node_id} does not exist."));
+        };
+
+        self.nodes.remove(index);
+        self.elements.retain(|element| {
+            let (_, node_i, node_j) = element_data(element);
+            node_i != node_id && node_j != node_id
+        });
+        self.supports.retain(|support| support.node_id != node_id);
+        self.nodal_loads.retain(|load| load.node_id != node_id);
+
+        Ok(())
+    }
+
     pub fn update_node_coordinate(
         &mut self,
         node_id: usize,
@@ -101,6 +126,14 @@ impl StructuralModel {
     }
 
     pub fn add_frame_member(&mut self, node_i: usize, node_j: usize) -> Result<usize, String> {
+        if self.node(node_i).is_none() {
+            return Err(format!("Node {node_i} does not exist."));
+        }
+
+        if self.node(node_j).is_none() {
+            return Err(format!("Node {node_j} does not exist."));
+        }
+
         if node_i == node_j {
             return Err("Member endpoints must be different nodes.".to_string());
         }
@@ -119,6 +152,35 @@ impl StructuralModel {
         )));
 
         Ok(id)
+    }
+
+    pub fn add_default_frame_member(&mut self) -> Result<usize, String> {
+        for (index, node_i) in self.nodes.iter().enumerate() {
+            for node_j in self.nodes.iter().skip(index + 1) {
+                if self.element_between(node_i.id, node_j.id).is_none() {
+                    return self.add_frame_member(node_i.id, node_j.id);
+                }
+            }
+        }
+
+        if self.nodes.len() < 2 {
+            Err("Add at least two nodes before adding a member.".to_string())
+        } else {
+            Err("All available node pairs already have members.".to_string())
+        }
+    }
+
+    pub fn remove_element(&mut self, element_id: usize) -> Result<(), String> {
+        let Some(index) = self
+            .elements
+            .iter()
+            .position(|element| element_id_of(element) == element_id)
+        else {
+            return Err(format!("Member {element_id} does not exist."));
+        };
+
+        self.elements.remove(index);
+        Ok(())
     }
 
     pub fn update_member_endpoint(
@@ -168,9 +230,32 @@ impl StructuralModel {
         Ok(())
     }
 
-    pub fn add_default_load(&mut self, node_id: usize) {
+    pub fn add_default_load(&mut self, node_id: usize) -> Result<usize, String> {
+        if self.node(node_id).is_none() {
+            return Err(format!("Node {node_id} does not exist."));
+        }
+
         self.nodal_loads
             .push(NodalLoad::new(node_id, Dof::Uy, -10_000.0));
+
+        Ok(self.nodal_loads.len() - 1)
+    }
+
+    pub fn add_default_load_to_first_node(&mut self) -> Result<usize, String> {
+        let Some(node_id) = self.nodes.first().map(|node| node.id) else {
+            return Err("Add a node before adding a load.".to_string());
+        };
+
+        self.add_default_load(node_id)
+    }
+
+    pub fn remove_nodal_load(&mut self, index: usize) -> Result<(), String> {
+        if index >= self.nodal_loads.len() {
+            return Err(format!("Load {index} does not exist."));
+        }
+
+        self.nodal_loads.remove(index);
+        Ok(())
     }
 
     pub fn update_nodal_load(
@@ -194,7 +279,13 @@ impl StructuralModel {
         Ok(())
     }
 
-    pub fn assign_pin_support(&mut self, node_id: usize) {
+    pub fn assign_pin_support(&mut self, node_id: usize) -> Result<usize, String> {
+        if self.node(node_id).is_none() {
+            return Err(format!("Node {node_id} does not exist."));
+        }
+
+        let first_added = self.supports.len();
+
         for support in Support::pin(node_id) {
             if !self
                 .supports
@@ -204,6 +295,29 @@ impl StructuralModel {
                 self.supports.push(support);
             }
         }
+
+        if self.supports.len() == first_added {
+            Err(format!("Pin support already exists at node {node_id}."))
+        } else {
+            Ok(first_added)
+        }
+    }
+
+    pub fn assign_pin_support_to_first_node(&mut self) -> Result<usize, String> {
+        let Some(node_id) = self.nodes.first().map(|node| node.id) else {
+            return Err("Add a node before adding a support.".to_string());
+        };
+
+        self.assign_pin_support(node_id)
+    }
+
+    pub fn remove_support(&mut self, index: usize) -> Result<(), String> {
+        if index >= self.supports.len() {
+            return Err(format!("Support {index} does not exist."));
+        }
+
+        self.supports.remove(index);
+        Ok(())
     }
 
     pub fn update_support(&mut self, index: usize, node_id: usize, dof: Dof) -> Result<(), String> {
@@ -404,5 +518,35 @@ mod tests {
             .expect_err("duplicate support should be rejected");
 
         assert_eq!(error, "Support 0 Ux already exists.");
+    }
+
+    #[test]
+    fn removing_node_clears_dependent_entities() {
+        let mut model = StructuralModel::sample();
+
+        model
+            .remove_node(3)
+            .expect("node and dependent entities should be removed");
+
+        assert!(model.node(3).is_none());
+        assert!(model.elements.iter().all(|element| {
+            let (_, node_i, node_j) = element_data(element);
+            node_i != 3 && node_j != 3
+        }));
+        assert!(model.nodal_loads.iter().all(|load| load.node_id != 3));
+        assert!(model.supports.iter().all(|support| support.node_id != 3));
+    }
+
+    #[test]
+    fn adds_default_member_between_available_nodes() {
+        let mut model = StructuralModel::empty();
+        model.add_node(0.0, 0.0);
+        model.add_node(1.0, 0.0);
+
+        let id = model
+            .add_default_frame_member()
+            .expect("available node pair should create a member");
+
+        assert_eq!(element_data(model.element(id).unwrap()), (id, 0, 1));
     }
 }
