@@ -2,14 +2,17 @@ use std::collections::BTreeMap;
 
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Alignment, Element, Fill, Length};
-use model::dof::Dof;
+use model::{
+    dof::Dof,
+    load::{DistributedLoadDirection, NodalLoad},
+};
 
 use crate::{
     app::Message,
     state::{
-        CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, Selection, StructuralModel,
-        SupportBuilder, SupportPreset, WorkspaceTool, dof_label, element_data, element_id,
-        element_kind,
+        CoordinateAxis, InteractionDraft, LoadBuilder, LoadTarget, MemberEndpoint, Selection,
+        StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool, dof_label, element_data,
+        element_id, element_kind,
     },
     theme,
 };
@@ -21,7 +24,7 @@ pub fn view<'a>(
     draft: InteractionDraft,
     node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
     member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
-    load_edits: &'a BTreeMap<(usize, LoadField), String>,
+    load_builder: Option<LoadBuilder>,
     support_builder: Option<SupportBuilder>,
 ) -> Element<'a, Message> {
     let filter = ModelTreeFilter::for_tool(tool);
@@ -59,7 +62,7 @@ pub fn view<'a>(
     }
 
     if filter.show_loads {
-        tree = tree.push(loads(model, filter.edit_loads(), load_edits));
+        tree = tree.push(loads(model, filter.edit_loads(), load_builder));
     }
 
     tree.into()
@@ -166,7 +169,10 @@ fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Mess
     }
 
     if filter.show_loads {
-        metrics = metrics.push(metric_row("Loads", model.nodal_loads.len()));
+        metrics = metrics.push(metric_row(
+            "Loads",
+            model.nodal_loads.len() + model.distributed_loads.len(),
+        ));
     }
 
     container(metrics)
@@ -316,38 +322,50 @@ fn supports<'a>(
 fn loads<'a>(
     model: &'a StructuralModel,
     editable: bool,
-    load_edits: &'a BTreeMap<(usize, LoadField), String>,
+    load_builder: Option<LoadBuilder>,
 ) -> Element<'a, Message> {
-    if model.nodal_loads.is_empty() {
-        return empty_section(
-            "Loads",
-            "No nodal loads assigned",
-            add_message(editable, EntityKind::Load),
-        );
+    let mut section = section("Loads", add_message(editable, EntityKind::Load));
+
+    if editable {
+        if let Some(builder) = load_builder {
+            section = section.push(load_builder_panel(builder));
+        } else {
+            section = section.push(
+                container(
+                    text("Select a node for point load or member for distributed load, then use +")
+                        .size(13)
+                        .color(theme::TEXT_MUTED),
+                )
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+            );
+        }
     }
 
+    if model.nodal_loads.is_empty() && model.distributed_loads.is_empty() {
+        return section
+            .push(
+                container(text("No loads assigned").size(13).color(theme::TEXT_MUTED))
+                    .padding([7, 8])
+                    .width(Fill)
+                    .style(theme::neutral_row),
+            )
+            .into();
+    }
+
+    let section = model.nodal_loads.iter().enumerate().fold(
+        section.push(load_subtitle("Point loads")),
+        |column, (index, load)| column.push(point_load_row(index, load, editable)),
+    );
+
     model
-        .nodal_loads
+        .distributed_loads
         .iter()
         .enumerate()
         .fold(
-            section("Loads", add_message(editable, EntityKind::Load)),
-            |column, (index, load)| {
-                if editable {
-                    column.push(editable_load_row(
-                        index,
-                        load.node_id,
-                        dof_label(load.dof),
-                        load.magnitude / 1000.0,
-                        load_edits,
-                    ))
-                } else {
-                    column.push(static_row(
-                        format!("N{}", load.node_id),
-                        format!("{} {:+.1} kN", dof_label(load.dof), load.magnitude / 1000.0),
-                    ))
-                }
-            },
+            section.push(load_subtitle("Distributed loads")),
+            |column, (index, load)| column.push(distributed_load_row(index, load, editable)),
         )
         .into()
 }
@@ -532,36 +550,214 @@ fn editable_member_row(
         .into()
 }
 
-fn editable_load_row(
-    index: usize,
-    node_id: usize,
-    dof: &'static str,
-    magnitude_kn: f64,
-    load_edits: &BTreeMap<(usize, LoadField), String>,
-) -> Element<'static, Message> {
+fn load_subtitle(label: &'static str) -> Element<'static, Message> {
+    text(label).size(12).color(theme::TEXT_MUTED).into()
+}
+
+fn point_load_row(index: usize, load: &NodalLoad, editable: bool) -> Element<'static, Message> {
+    let detail = format!("{} {:+.2} kN", dof_label(load.dof), load.magnitude / 1000.0);
     let content = row![
-        text(index.to_string())
-            .size(14)
-            .color(theme::TEXT)
-            .width(Length::Fixed(28.0)),
-        load_input(index, LoadField::Node, node_id.to_string(), load_edits),
-        load_input(index, LoadField::Dof, dof.to_string(), load_edits),
-        load_input(
-            index,
-            LoadField::Magnitude,
-            coordinate_value(magnitude_kn),
-            load_edits
-        ),
-        delete_button(Message::DeleteLoadRequested(index)),
+        button(
+            text(format!("N{}", load.node_id))
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
+        )
+        .padding([4, 6])
+        .width(Length::Fixed(44.0))
+        .style(theme::tool_button)
+        .on_press(Message::SelectionRequested(Some(Selection::Node(
+            load.node_id
+        )))),
+        column![
+            text("Point").size(14).color(theme::TEXT),
+            text(detail).size(12).color(theme::TEXT_MUTED),
+        ]
+        .spacing(1)
+        .width(Fill),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
+
+    let content = if editable {
+        content.push(delete_button(Message::DeletePointLoadRequested(index)))
+    } else {
+        content
+    };
 
     container(content)
         .padding([4, 6])
         .width(Fill)
         .style(theme::neutral_row)
         .into()
+}
+
+fn distributed_load_row(
+    index: usize,
+    load: &model::load::DistributedLoad,
+    editable: bool,
+) -> Element<'static, Message> {
+    let detail = format!(
+        "{} {:+.2} kN/m",
+        distributed_direction_label(&load.direction),
+        load.magnitude / 1000.0
+    );
+    let element_id = load.element_id;
+    let content = row![
+        button(
+            text(format!("M{element_id}"))
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
+        )
+        .padding([4, 6])
+        .width(Length::Fixed(44.0))
+        .style(theme::tool_button)
+        .on_press(Message::SelectionRequested(Some(Selection::Element(
+            element_id
+        )))),
+        column![
+            text("Distributed").size(14).color(theme::TEXT),
+            text(detail).size(12).color(theme::TEXT_MUTED),
+        ]
+        .spacing(1)
+        .width(Fill),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    let content = if editable {
+        content.push(delete_button(Message::DeleteDistributedLoadRequested(
+            index,
+        )))
+    } else {
+        content
+    };
+
+    container(content)
+        .padding([4, 6])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
+fn load_builder_panel(builder: LoadBuilder) -> Element<'static, Message> {
+    let target = match builder.target {
+        LoadTarget::Node(node_id) => format!("N{node_id} point load"),
+        LoadTarget::Element(element_id) => format!("M{element_id} distributed load"),
+    };
+    let magnitude_label = match builder.target {
+        LoadTarget::Node(_) => "kN",
+        LoadTarget::Element(_) => "kN/m",
+    };
+
+    let direction_controls = match builder.target {
+        LoadTarget::Node(_) => row![
+            point_dof_button("Fx", Dof::Ux, builder.dof),
+            point_dof_button("Fy", Dof::Uy, builder.dof),
+            point_dof_button("Fz", Dof::Uz, builder.dof),
+            point_dof_button("Mx", Dof::Rx, builder.dof),
+            point_dof_button("My", Dof::Ry, builder.dof),
+            point_dof_button("Mz", Dof::Rz, builder.dof),
+        ],
+        LoadTarget::Element(_) => row![
+            distributed_direction_button(
+                "Global X",
+                DistributedLoadDirection::GlobalX,
+                &builder.direction,
+            ),
+            distributed_direction_button(
+                "Global Y",
+                DistributedLoadDirection::GlobalY,
+                &builder.direction,
+            ),
+            distributed_direction_button(
+                "Local X",
+                DistributedLoadDirection::LocalX,
+                &builder.direction,
+            ),
+            distributed_direction_button(
+                "Local Y",
+                DistributedLoadDirection::LocalY,
+                &builder.direction,
+            ),
+        ],
+    }
+    .spacing(6)
+    .width(Fill);
+
+    container(
+        column![
+            row![
+                text(target).size(14).color(theme::TEXT).width(Fill),
+                button(text("Cancel").size(12).color(theme::TEXT))
+                    .padding([3, 8])
+                    .style(theme::secondary_button)
+                    .on_press(Message::CancelLoadRequested),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text("Direction").size(12).color(theme::TEXT_MUTED),
+            direction_controls,
+            text_input(magnitude_label, &builder.magnitude)
+                .on_input(Message::LoadMagnitudeChanged)
+                .padding([5, 7])
+                .size(13)
+                .width(Fill)
+                .style(theme::compact_input),
+            button(text("Apply load").size(13).color(theme::TEXT))
+                .padding([6, 10])
+                .width(Fill)
+                .style(theme::primary_button)
+                .on_press(Message::ApplyLoadRequested),
+        ]
+        .spacing(7),
+    )
+    .padding(9)
+    .width(Fill)
+    .style(theme::inset)
+    .into()
+}
+
+fn point_dof_button(label: &'static str, dof: Dof, selected: Dof) -> Element<'static, Message> {
+    button(text(label).size(13).color(theme::TEXT))
+        .padding([6, 8])
+        .width(Length::Fill)
+        .style(if dof == selected {
+            theme::tool_button_active
+        } else {
+            theme::secondary_button
+        })
+        .on_press(Message::LoadPointDofSelected(dof))
+        .into()
+}
+
+fn distributed_direction_button(
+    label: &'static str,
+    direction: DistributedLoadDirection,
+    selected: &DistributedLoadDirection,
+) -> Element<'static, Message> {
+    button(text(label).size(13).color(theme::TEXT))
+        .padding([6, 8])
+        .width(Length::Fill)
+        .style(if direction == *selected {
+            theme::tool_button_active
+        } else {
+            theme::secondary_button
+        })
+        .on_press(Message::LoadDistributedDirectionSelected(direction))
+        .into()
+}
+
+fn distributed_direction_label(direction: &DistributedLoadDirection) -> &'static str {
+    match direction {
+        DistributedLoadDirection::LocalX => "Local X",
+        DistributedLoadDirection::LocalY => "Local Y",
+        DistributedLoadDirection::LocalZ => "Local Z",
+        DistributedLoadDirection::GlobalX => "Global X",
+        DistributedLoadDirection::GlobalY => "Global Y",
+        DistributedLoadDirection::GlobalZ => "Global Z",
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -810,28 +1006,6 @@ fn member_endpoint_input(
         .into()
 }
 
-fn load_input(
-    index: usize,
-    field: LoadField,
-    fallback: String,
-    load_edits: &BTreeMap<(usize, LoadField), String>,
-) -> Element<'static, Message> {
-    let value = load_edits.get(&(index, field)).cloned().unwrap_or(fallback);
-
-    text_input(field.label(), &value)
-        .on_input(move |value| Message::LoadDraftChanged {
-            index,
-            field,
-            value,
-        })
-        .on_submit(Message::LoadSubmitted { index })
-        .padding([4, 6])
-        .size(13)
-        .width(Length::Fill)
-        .style(theme::compact_input)
-        .into()
-}
-
 fn delete_button(message: Message) -> Element<'static, Message> {
     button(text("x").size(13).color(theme::TEXT))
         .padding([4, 7])
@@ -850,21 +1024,4 @@ fn coordinate_value(value: f64) -> String {
             .trim_end_matches('.')
             .to_string()
     }
-}
-
-fn static_row(label: String, detail: String) -> Element<'static, Message> {
-    container(
-        row![
-            text(label)
-                .size(14)
-                .color(theme::TEXT)
-                .width(Length::Fixed(44.0)),
-            text(detail).size(13).color(theme::TEXT_MUTED).width(Fill),
-        ]
-        .spacing(8),
-    )
-    .padding([4, 8])
-    .width(Fill)
-    .style(theme::neutral_row)
-    .into()
 }

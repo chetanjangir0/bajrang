@@ -4,7 +4,7 @@ use iced::widget::canvas;
 use iced::{
     Color, Element, Font, Length, Pixels, Point, Rectangle, Renderer, Theme, Vector, alignment,
 };
-use model::{dof::Dof, node::Node};
+use model::{dof::Dof, load::DistributedLoadDirection, node::Node};
 
 use crate::{
     state::{
@@ -347,33 +347,78 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_loads(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        for load in &self.model.distributed_loads {
+            let Some(element) = self.model.element(load.element_id) else {
+                continue;
+            };
+
+            let (_, node_i, node_j) = element_data(element);
+            let Some(ni) = self.model.node(node_i) else {
+                continue;
+            };
+            let Some(nj) = self.model.node(node_j) else {
+                continue;
+            };
+
+            let a = self.node_screen_position(ni, bounds);
+            let b = self.node_screen_position(nj, bounds);
+            let Some(direction) = distributed_load_direction(load.direction.clone(), a, b) else {
+                continue;
+            };
+
+            let normal = perpendicular_unit(a, b).unwrap_or(Vector::new(0.0, -1.0));
+            let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
+            let offset = normal * 24.0 * signed;
+
+            for step in 1..=4 {
+                let t = step as f32 / 5.0;
+                let point = interpolate(a, b, t);
+                draw_arrow(
+                    frame,
+                    point - direction * signed * 30.0 + offset,
+                    point + offset,
+                    theme::LOAD,
+                    1.7,
+                );
+            }
+
+            label(
+                frame,
+                format!("{:+.2} kN/m", load.magnitude / 1000.0),
+                interpolate(a, b, 0.5) + offset + normal * 14.0,
+                theme::LOAD,
+                11.0,
+                92.0,
+            );
+        }
+
         for load in &self.model.nodal_loads {
             let Some(node) = self.model.node(load.node_id) else {
                 continue;
             };
 
             let point = self.node_screen_position(node, bounds);
-            let direction = if load.magnitude < 0.0 { 1.0 } else { -1.0 };
-            let start = point + Vector::new(0.0, -direction * 44.0);
-            let end = point + Vector::new(0.0, -direction * 13.0);
+            let Some(direction) = point_load_direction(load.dof) else {
+                label(
+                    frame,
+                    format!(
+                        "{} {:+.2} kN m",
+                        dof_label(load.dof),
+                        load.magnitude / 1000.0
+                    ),
+                    point + Vector::new(0.0, -32.0),
+                    theme::LOAD,
+                    11.0,
+                    92.0,
+                );
+                continue;
+            };
 
-            frame.stroke(
-                &canvas::Path::line(start, end),
-                canvas::Stroke {
-                    style: canvas::Style::Solid(theme::LOAD),
-                    width: 2.0,
-                    ..canvas::Stroke::default()
-                },
-            );
+            let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
+            let end = point + direction * signed * 13.0;
+            let start = point + direction * signed * 44.0;
 
-            let head = canvas::Path::new(|builder| {
-                builder.move_to(end);
-                builder.line_to(end + Vector::new(-5.0, -direction * 8.0));
-                builder.line_to(end + Vector::new(5.0, -direction * 8.0));
-                builder.close();
-            });
-
-            frame.fill(&head, theme::LOAD);
+            draw_arrow(frame, start, end, theme::LOAD, 2.0);
         }
     }
 
@@ -794,6 +839,14 @@ fn reaction_direction(dof: Dof) -> Option<Vector> {
     }
 }
 
+fn point_load_direction(dof: Dof) -> Option<Vector> {
+    match dof {
+        Dof::Ux => Some(Vector::new(1.0, 0.0)),
+        Dof::Uy => Some(Vector::new(0.0, -1.0)),
+        Dof::Uz | Dof::Rx | Dof::Ry | Dof::Rz => None,
+    }
+}
+
 fn diagram_kind(display: ResultDisplay) -> Option<DiagramKind> {
     match display {
         ResultDisplay::ShearForce => Some(DiagramKind::ShearY),
@@ -865,6 +918,34 @@ fn force_color(ratio: f64) -> Color {
 
 fn vector_length(vector: Vector) -> f32 {
     (vector.x * vector.x + vector.y * vector.y).sqrt()
+}
+
+fn interpolate(a: Point, b: Point, t: f32) -> Point {
+    Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+}
+
+fn unit_vector(vector: Vector) -> Option<Vector> {
+    let length = vector_length(vector);
+    (length > f32::EPSILON).then_some(vector * (1.0 / length))
+}
+
+fn perpendicular_unit(a: Point, b: Point) -> Option<Vector> {
+    let unit = unit_vector(b - a)?;
+    Some(Vector::new(-unit.y, unit.x))
+}
+
+fn distributed_load_direction(
+    direction: DistributedLoadDirection,
+    a: Point,
+    b: Point,
+) -> Option<Vector> {
+    match direction {
+        DistributedLoadDirection::LocalX => unit_vector(b - a),
+        DistributedLoadDirection::LocalY => perpendicular_unit(a, b),
+        DistributedLoadDirection::GlobalX => Some(Vector::new(1.0, 0.0)),
+        DistributedLoadDirection::GlobalY => Some(Vector::new(0.0, -1.0)),
+        DistributedLoadDirection::LocalZ | DistributedLoadDirection::GlobalZ => None,
+    }
 }
 
 fn distance(a: Point, b: Point) -> f32 {

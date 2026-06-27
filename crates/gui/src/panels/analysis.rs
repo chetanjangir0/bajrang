@@ -38,7 +38,10 @@ fn solve_panel(model: &StructuralModel, analysis: &AnalysisState) -> Element<'st
         column![
             property("Members", model.elements.len().to_string()),
             property("Supports", model.supports.len().to_string()),
-            property("Loads", model.nodal_loads.len().to_string()),
+            property(
+                "Loads",
+                (model.nodal_loads.len() + model.distributed_loads.len()).to_string()
+            ),
             text(status)
                 .size(13)
                 .color(status_color(analysis))

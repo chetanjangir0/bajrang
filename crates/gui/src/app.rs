@@ -3,13 +3,13 @@ use std::collections::BTreeMap;
 use iced::keyboard::{self, Key, key};
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Subscription, Task};
-use model::dof::Dof;
+use model::{dof::Dof, load::DistributedLoadDirection};
 
 use crate::{
     expression, panels,
     state::{
-        AnalysisState, CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, ResultDisplay,
-        Selection, StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool,
+        AnalysisState, CoordinateAxis, InteractionDraft, LoadBuilder, LoadTarget, MemberEndpoint,
+        ResultDisplay, Selection, StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool,
         run_basic_analysis,
     },
     theme,
@@ -29,7 +29,7 @@ pub struct BajrangApp {
     pub status: StatusLine,
     pub node_coordinate_edits: BTreeMap<(usize, CoordinateAxis), String>,
     pub member_endpoint_edits: BTreeMap<(usize, MemberEndpoint), String>,
-    pub load_edits: BTreeMap<(usize, LoadField), String>,
+    pub load_builder: Option<LoadBuilder>,
     pub support_builder: Option<SupportBuilder>,
 }
 
@@ -55,17 +55,14 @@ pub enum Message {
         element_id: usize,
         endpoint: MemberEndpoint,
     },
-    LoadDraftChanged {
-        index: usize,
-        field: LoadField,
-        value: String,
-    },
-    LoadSubmitted {
-        index: usize,
-    },
     AddNodeRequested,
     AddMemberRequested,
     AddLoadRequested,
+    LoadPointDofSelected(Dof),
+    LoadDistributedDirectionSelected(DistributedLoadDirection),
+    LoadMagnitudeChanged(String),
+    ApplyLoadRequested,
+    CancelLoadRequested,
     AddSupportRequested,
     AddSupportPresetRequested(SupportPreset),
     CustomSupportDofToggled {
@@ -76,7 +73,8 @@ pub enum Message {
     CancelSupportRequested,
     DeleteNodeRequested(usize),
     DeleteMemberRequested(usize),
-    DeleteLoadRequested(usize),
+    DeletePointLoadRequested(usize),
+    DeleteDistributedLoadRequested(usize),
     DeleteSupportGroupRequested(usize),
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
@@ -118,7 +116,7 @@ impl Default for BajrangApp {
             status: StatusLine::neutral("Ready"),
             node_coordinate_edits: BTreeMap::new(),
             member_endpoint_edits: BTreeMap::new(),
-            load_edits: BTreeMap::new(),
+            load_builder: None,
             support_builder: None,
         }
     }
@@ -169,17 +167,29 @@ impl BajrangApp {
                 element_id,
                 endpoint,
             } => self.handle_member_endpoint_submit(element_id, endpoint),
-            Message::LoadDraftChanged {
-                index,
-                field,
-                value,
-            } => {
-                self.load_edits.insert((index, field), value);
-            }
-            Message::LoadSubmitted { index } => self.handle_load_submit(index),
             Message::AddNodeRequested => self.add_node_from_tree(),
             Message::AddMemberRequested => self.add_member_from_tree(),
             Message::AddLoadRequested => self.add_load_from_tree(),
+            Message::LoadPointDofSelected(dof) => {
+                if let Some(builder) = &mut self.load_builder {
+                    builder.dof = dof;
+                }
+            }
+            Message::LoadDistributedDirectionSelected(direction) => {
+                if let Some(builder) = &mut self.load_builder {
+                    builder.direction = direction;
+                }
+            }
+            Message::LoadMagnitudeChanged(value) => {
+                if let Some(builder) = &mut self.load_builder {
+                    builder.magnitude = value;
+                }
+            }
+            Message::ApplyLoadRequested => self.apply_load(),
+            Message::CancelLoadRequested => {
+                self.load_builder = None;
+                self.set_status(StatusLevel::Neutral, "Load assignment cancelled");
+            }
             Message::AddSupportRequested => self.add_support_from_tree(),
             Message::AddSupportPresetRequested(preset) => self.add_support_preset(preset),
             Message::CustomSupportDofToggled { dof, restrained } => {
@@ -192,7 +202,8 @@ impl BajrangApp {
             }
             Message::DeleteNodeRequested(node_id) => self.delete_node(node_id),
             Message::DeleteMemberRequested(element_id) => self.delete_member(element_id),
-            Message::DeleteLoadRequested(index) => self.delete_load(index),
+            Message::DeletePointLoadRequested(index) => self.delete_point_load(index),
+            Message::DeleteDistributedLoadRequested(index) => self.delete_distributed_load(index),
             Message::DeleteSupportGroupRequested(node_id) => self.delete_support_group(node_id),
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
@@ -250,7 +261,7 @@ impl BajrangApp {
                 self.draft,
                 &self.node_coordinate_edits,
                 &self.member_endpoint_edits,
-                &self.load_edits,
+                self.load_builder.clone(),
                 self.support_builder,
             ),
         };
@@ -381,7 +392,7 @@ impl BajrangApp {
                     self.model.nodes.len(),
                     self.model.elements.len(),
                     self.model.supports.len(),
-                    self.model.nodal_loads.len()
+                    self.model.nodal_loads.len() + self.model.distributed_loads.len()
                 ))
                 .size(14)
                 .color(theme::TEXT_MUTED),
@@ -456,25 +467,78 @@ impl BajrangApp {
     }
 
     fn add_load_from_tree(&mut self) {
-        let node_id = match self.selection {
-            Some(Selection::Node(node_id)) => Some(node_id),
-            _ => self.model.nodes.first().map(|node| node.id),
+        self.load_builder = match self.selection {
+            Some(Selection::Node(node_id)) => Some(LoadBuilder::point(node_id)),
+            Some(Selection::Element(element_id)) => Some(LoadBuilder::distributed(element_id)),
+            None => None,
         };
 
-        let result = match node_id {
-            Some(node_id) => self.model.add_default_load(node_id),
-            None => self.model.add_default_load_to_first_node(),
+        let Some(builder) = &self.load_builder else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a node or member before adding a load",
+            );
+            return;
         };
 
-        match result {
-            Ok(index) => {
-                let node_id = self.model.nodal_loads[index].node_id;
-                self.selection = Some(Selection::Node(node_id));
-                self.draft.clear();
-                self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Load {index} added"));
+        self.draft.clear();
+        self.set_status(
+            StatusLevel::Neutral,
+            format!("Define {} load", builder.kind.label()),
+        );
+    }
+
+    fn apply_load(&mut self) {
+        let Some(builder) = self.load_builder.clone() else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a node or member and use + before applying a load",
+            );
+            return;
+        };
+
+        let magnitude = match expression::evaluate(builder.magnitude.trim()) {
+            Ok(value) => value * 1000.0,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, format!("Load magnitude: {error}"));
+                return;
             }
-            Err(error) => self.set_status(StatusLevel::Warning, error),
+        };
+
+        match builder.target {
+            LoadTarget::Node(node_id) => {
+                match self.model.add_nodal_load(node_id, builder.dof, magnitude) {
+                    Ok(index) => {
+                        self.selection = Some(Selection::Node(node_id));
+                        self.load_builder = None;
+                        self.draft.clear();
+                        self.analysis = AnalysisState::Idle;
+                        self.set_status(
+                            StatusLevel::Success,
+                            format!("Point load {index} assigned to node {node_id}"),
+                        );
+                    }
+                    Err(error) => self.set_status(StatusLevel::Warning, error),
+                }
+            }
+            LoadTarget::Element(element_id) => {
+                match self
+                    .model
+                    .add_distributed_load(element_id, builder.direction, magnitude)
+                {
+                    Ok(index) => {
+                        self.selection = Some(Selection::Element(element_id));
+                        self.load_builder = None;
+                        self.draft.clear();
+                        self.analysis = AnalysisState::Idle;
+                        self.set_status(
+                            StatusLevel::Success,
+                            format!("Distributed load {index} assigned to member {element_id}"),
+                        );
+                    }
+                    Err(error) => self.set_status(StatusLevel::Warning, error),
+                }
+            }
         }
     }
 
@@ -595,13 +659,28 @@ impl BajrangApp {
         }
     }
 
-    fn delete_load(&mut self, index: usize) {
+    fn delete_point_load(&mut self, index: usize) {
         match self.model.remove_nodal_load(index) {
             Ok(()) => {
-                self.load_edits.clear();
+                self.load_builder = None;
                 self.draft.clear();
                 self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Load {index} deleted"));
+                self.set_status(StatusLevel::Success, format!("Point load {index} deleted"));
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn delete_distributed_load(&mut self, index: usize) {
+        match self.model.remove_distributed_load(index) {
+            Ok(()) => {
+                self.load_builder = None;
+                self.draft.clear();
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Distributed load {index} deleted"),
+                );
             }
             Err(error) => self.set_status(StatusLevel::Warning, error),
         }
@@ -724,67 +803,6 @@ impl BajrangApp {
         }
     }
 
-    fn handle_load_submit(&mut self, index: usize) {
-        let Some(load) = self.model.nodal_loads.get(index) else {
-            self.set_status(
-                StatusLevel::Warning,
-                format!("Load {index} does not exist."),
-            );
-            return;
-        };
-
-        let node_text = self
-            .load_edits
-            .get(&(index, LoadField::Node))
-            .cloned()
-            .unwrap_or_else(|| load.node_id.to_string());
-        let dof_text = self
-            .load_edits
-            .get(&(index, LoadField::Dof))
-            .cloned()
-            .unwrap_or_else(|| dof_value(load.dof));
-        let magnitude_text = self
-            .load_edits
-            .get(&(index, LoadField::Magnitude))
-            .cloned()
-            .unwrap_or_else(|| formatted_value(load.magnitude / 1000.0));
-
-        let node_id = match parse_usize(node_text.trim(), "load node id") {
-            Ok(value) => value,
-            Err(error) => {
-                self.set_status(StatusLevel::Warning, error);
-                return;
-            }
-        };
-        let dof = match parse_dof(&dof_text) {
-            Ok(value) => value,
-            Err(error) => {
-                self.set_status(StatusLevel::Warning, error);
-                return;
-            }
-        };
-        let magnitude = match expression::evaluate(magnitude_text.trim()) {
-            Ok(value) => value * 1000.0,
-            Err(error) => {
-                self.set_status(StatusLevel::Warning, format!("Load {index} kN: {error}"));
-                return;
-            }
-        };
-
-        match self.model.update_nodal_load(index, node_id, dof, magnitude) {
-            Ok(()) => {
-                self.load_edits.remove(&(index, LoadField::Node));
-                self.load_edits.remove(&(index, LoadField::Dof));
-                self.load_edits.remove(&(index, LoadField::Magnitude));
-                self.selection = Some(Selection::Node(node_id));
-                self.draft.clear();
-                self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Load {index} updated"));
-            }
-            Err(error) => self.set_status(StatusLevel::Warning, error),
-        }
-    }
-
     fn handle_member_press(&mut self, target: Option<Selection>) {
         let Some(Selection::Node(node_id)) = target else {
             self.set_status(StatusLevel::Warning, "Select a node endpoint");
@@ -814,22 +832,17 @@ impl BajrangApp {
     }
 
     fn handle_load_press(&mut self, target: Option<Selection>) {
-        let Some(Selection::Node(node_id)) = target else {
-            self.set_status(StatusLevel::Warning, "Select a node for the load");
+        let Some(selection @ (Selection::Node(_) | Selection::Element(_))) = target else {
+            self.set_status(StatusLevel::Warning, "Select a node or member for the load");
             return;
         };
 
-        match self.model.add_default_load(node_id) {
-            Ok(_) => {
-                self.selection = Some(Selection::Node(node_id));
-                self.analysis = AnalysisState::Idle;
-                self.set_status(
-                    StatusLevel::Success,
-                    format!("Load assigned to node {node_id}"),
-                );
-            }
-            Err(error) => self.set_status(StatusLevel::Warning, error),
-        }
+        self.selection = Some(selection);
+        self.draft.clear();
+        self.set_status(
+            StatusLevel::Neutral,
+            "Selection ready. Use + in Loads to assign load",
+        );
     }
 
     fn handle_support_press(&mut self, target: Option<Selection>) {
@@ -874,7 +887,7 @@ impl BajrangApp {
     fn clear_edit_drafts(&mut self) {
         self.node_coordinate_edits.clear();
         self.member_endpoint_edits.clear();
-        self.load_edits.clear();
+        self.load_builder = None;
         self.support_builder = None;
     }
 }
@@ -902,35 +915,8 @@ fn coordinate_text(node: &model::node::Node, axis: CoordinateAxis) -> String {
     .to_string()
 }
 
-fn formatted_value(value: f64) -> String {
-    if value == 0.0 {
-        "0".to_string()
-    } else {
-        format!("{value:.3}")
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_string()
-    }
-}
-
-fn dof_value(dof: Dof) -> String {
-    crate::state::dof_label(dof).to_string()
-}
-
 fn parse_usize(value: &str, label: &str) -> Result<usize, String> {
     value.parse().map_err(|_| format!("Enter a valid {label}."))
-}
-
-fn parse_dof(value: &str) -> Result<Dof, String> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "ux" => Ok(Dof::Ux),
-        "uy" => Ok(Dof::Uy),
-        "uz" => Ok(Dof::Uz),
-        "rx" => Ok(Dof::Rx),
-        "ry" => Ok(Dof::Ry),
-        "rz" => Ok(Dof::Rz),
-        _ => Err("Enter a valid DOF: Ux, Uy, Uz, Rx, Ry, or Rz.".to_string()),
-    }
 }
 
 impl StatusLine {

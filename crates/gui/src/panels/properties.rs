@@ -1,6 +1,6 @@
 use iced::widget::{column, container, row, text};
 use iced::{Element, Fill, Length};
-use model::dof::Dof;
+use model::{dof::Dof, load::DistributedLoadDirection};
 
 use crate::{
     app::Message,
@@ -69,6 +69,7 @@ fn member_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
             property("Start", format!("N{node_i}")),
             property("End", format!("N{node_j}")),
             property("Length", format!("{length:.3} m")),
+            property("Loads", distributed_load_summary(model, id)),
         ],
     )
 }
@@ -226,6 +227,38 @@ fn load_summary(model: &StructuralModel, node_id: usize) -> String {
         "None".to_string()
     } else {
         labels.join(", ")
+    }
+}
+
+fn distributed_load_summary(model: &StructuralModel, element_id: usize) -> String {
+    let labels = model
+        .distributed_loads
+        .iter()
+        .filter(|load| load.element_id == element_id)
+        .map(|load| {
+            format!(
+                "{} {:+.1} kN/m",
+                distributed_direction_label(&load.direction),
+                load.magnitude / 1000.0
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if labels.is_empty() {
+        "None".to_string()
+    } else {
+        labels.join(", ")
+    }
+}
+
+fn distributed_direction_label(direction: &DistributedLoadDirection) -> &'static str {
+    match direction {
+        DistributedLoadDirection::LocalX => "Local X",
+        DistributedLoadDirection::LocalY => "Local Y",
+        DistributedLoadDirection::LocalZ => "Local Z",
+        DistributedLoadDirection::GlobalX => "Global X",
+        DistributedLoadDirection::GlobalY => "Global Y",
+        DistributedLoadDirection::GlobalZ => "Global Z",
     }
 }
 

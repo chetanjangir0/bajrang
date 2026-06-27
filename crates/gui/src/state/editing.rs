@@ -20,19 +20,54 @@ impl MemberEndpoint {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum LoadField {
-    Node,
-    Dof,
-    Magnitude,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadTarget {
+    Node(usize),
+    Element(usize),
 }
 
-impl LoadField {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadKind {
+    Point,
+    Distributed,
+}
+
+impl LoadKind {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Node => "N",
-            Self::Dof => "DOF",
-            Self::Magnitude => "kN",
+            Self::Point => "Point",
+            Self::Distributed => "Distributed",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LoadBuilder {
+    pub target: LoadTarget,
+    pub kind: LoadKind,
+    pub dof: model::dof::Dof,
+    pub direction: model::load::DistributedLoadDirection,
+    pub magnitude: String,
+}
+
+impl LoadBuilder {
+    pub fn point(node_id: usize) -> Self {
+        Self {
+            target: LoadTarget::Node(node_id),
+            kind: LoadKind::Point,
+            dof: model::dof::Dof::Uy,
+            direction: model::load::DistributedLoadDirection::GlobalY,
+            magnitude: "-10".to_string(),
+        }
+    }
+
+    pub fn distributed(element_id: usize) -> Self {
+        Self {
+            target: LoadTarget::Element(element_id),
+            kind: LoadKind::Distributed,
+            dof: model::dof::Dof::Uy,
+            direction: model::load::DistributedLoadDirection::GlobalY,
+            magnitude: "-5".to_string(),
         }
     }
 }

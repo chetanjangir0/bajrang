@@ -3,7 +3,7 @@ use model::{
     boundary::Support,
     dof::Dof,
     elements::{StructuralElement, frame2d::Frame2D, truss2d::Truss2D},
-    load::{DistributedLoad, NodalLoad},
+    load::{DistributedLoad, DistributedLoadDirection, NodalLoad},
     material::Material,
     node::Node,
     section::Section,
@@ -230,23 +230,20 @@ impl StructuralModel {
         Ok(())
     }
 
-    pub fn add_default_load(&mut self, node_id: usize) -> Result<usize, String> {
+    pub fn add_nodal_load(
+        &mut self,
+        node_id: usize,
+        dof: Dof,
+        magnitude: f64,
+    ) -> Result<usize, String> {
         if self.node(node_id).is_none() {
             return Err(format!("Node {node_id} does not exist."));
         }
 
         self.nodal_loads
-            .push(NodalLoad::new(node_id, Dof::Uy, -10_000.0));
+            .push(NodalLoad::new(node_id, dof, magnitude));
 
         Ok(self.nodal_loads.len() - 1)
-    }
-
-    pub fn add_default_load_to_first_node(&mut self) -> Result<usize, String> {
-        let Some(node_id) = self.nodes.first().map(|node| node.id) else {
-            return Err("Add a node before adding a load.".to_string());
-        };
-
-        self.add_default_load(node_id)
     }
 
     pub fn remove_nodal_load(&mut self, index: usize) -> Result<(), String> {
@@ -276,6 +273,34 @@ impl StructuralModel {
         load.node_id = node_id;
         load.dof = dof;
         load.magnitude = magnitude;
+        Ok(())
+    }
+
+    pub fn add_distributed_load(
+        &mut self,
+        element_id: usize,
+        direction: DistributedLoadDirection,
+        magnitude: f64,
+    ) -> Result<usize, String> {
+        if self.element(element_id).is_none() {
+            return Err(format!("Member {element_id} does not exist."));
+        }
+
+        self.distributed_loads.push(DistributedLoad {
+            element_id,
+            direction,
+            magnitude,
+        });
+
+        Ok(self.distributed_loads.len() - 1)
+    }
+
+    pub fn remove_distributed_load(&mut self, index: usize) -> Result<(), String> {
+        if index >= self.distributed_loads.len() {
+            return Err(format!("Distributed load {index} does not exist."));
+        }
+
+        self.distributed_loads.remove(index);
         Ok(())
     }
 
@@ -529,6 +554,40 @@ mod tests {
         assert_eq!(load.node_id, 1);
         assert_eq!(load.dof, Dof::Ux);
         assert_eq!(load.magnitude, 12_000.0);
+    }
+
+    #[test]
+    fn adds_point_load_to_existing_node() {
+        let mut model = StructuralModel::empty();
+        let node_id = model.add_node(0.0, 0.0);
+
+        let index = model
+            .add_nodal_load(node_id, Dof::Uy, -15_000.0)
+            .expect("point load should be assigned");
+
+        let load = &model.nodal_loads[index];
+        assert_eq!(load.node_id, node_id);
+        assert_eq!(load.dof, Dof::Uy);
+        assert_eq!(load.magnitude, -15_000.0);
+    }
+
+    #[test]
+    fn adds_distributed_load_to_existing_member() {
+        let mut model = StructuralModel::empty();
+        model.add_node(0.0, 0.0);
+        model.add_node(4.0, 0.0);
+        let element_id = model
+            .add_default_frame_member()
+            .expect("member should be created");
+
+        let index = model
+            .add_distributed_load(element_id, DistributedLoadDirection::GlobalY, -5_000.0)
+            .expect("distributed load should be assigned");
+
+        let load = &model.distributed_loads[index];
+        assert_eq!(load.element_id, element_id);
+        assert_eq!(load.direction, DistributedLoadDirection::GlobalY);
+        assert_eq!(load.magnitude, -5_000.0);
     }
 
     #[test]
