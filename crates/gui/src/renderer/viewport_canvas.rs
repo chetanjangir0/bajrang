@@ -395,26 +395,7 @@ impl ViewportCanvas<'_> {
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
             let height =
                 (18.0 + 34.0 * (load.magnitude.abs() / max_distributed_load) as f32) * load_scale;
-            let offset = direction * signed * height;
-            let qa = a + offset;
-            let qb = b + offset;
-
-            let load_area = canvas::Path::new(|builder| {
-                builder.move_to(a);
-                builder.line_to(qa);
-                builder.line_to(qb);
-                builder.line_to(b);
-                builder.line_to(a);
-            });
-            let load_outline = canvas::Path::new(|builder| {
-                builder.move_to(qa);
-                builder.line_to(qb);
-            });
-
-            frame.fill(
-                &load_area,
-                Color::from_rgba(theme::LOAD.r, theme::LOAD.g, theme::LOAD.b, 0.13),
-            );
+            let force_direction = direction * signed;
             frame.stroke(
                 &canvas::Path::line(a, b),
                 canvas::Stroke {
@@ -428,34 +409,15 @@ impl ViewportCanvas<'_> {
                     ..canvas::Stroke::default()
                 },
             );
-            for (base, point) in [(a, qa), (b, qb)] {
-                frame.stroke(
-                    &canvas::Path::line(base, point),
-                    canvas::Stroke {
-                        style: canvas::Style::Solid(Color::from_rgba(
-                            theme::LOAD.r,
-                            theme::LOAD.g,
-                            theme::LOAD.b,
-                            0.62,
-                        )),
-                        width: 1.2,
-                        ..canvas::Stroke::default()
-                    },
-                );
+            for station in distributed_load_stations(a, b) {
+                let (start, end) = load_arrow_span(station, force_direction, height, 6.0);
+                draw_arrow(frame, start, end, theme::LOAD, 1.6);
             }
-            frame.stroke(
-                &load_outline,
-                canvas::Stroke {
-                    style: canvas::Style::Solid(theme::LOAD),
-                    width: 2.0,
-                    ..canvas::Stroke::default()
-                },
-            );
 
             label(
                 frame,
                 format!("{:+.2} kN/m", load.magnitude / 1000.0),
-                interpolate(qa, qb, 0.5) + direction * signed * 14.0 * load_scale,
+                interpolate(a, b, 0.5) - force_direction * (height + 14.0 * load_scale),
                 theme::LOAD,
                 11.0,
                 92.0,
@@ -490,14 +452,14 @@ impl ViewportCanvas<'_> {
             } else {
                 (24.0 + 24.0 * (load.magnitude.abs() / max_point_load) as f32) * load_scale
             };
-            let end = point + direction * signed * 11.0 * load_scale;
-            let start = point + direction * signed * length;
+            let force_direction = direction * signed;
+            let (start, end) = load_arrow_span(point, force_direction, length, 11.0 * load_scale);
 
             draw_arrow(frame, start, end, theme::LOAD, 2.0);
             label(
                 frame,
                 format!("{:+.2} kN", load.magnitude / 1000.0),
-                start + direction * signed * 12.0 * load_scale,
+                start - force_direction * 12.0 * load_scale,
                 theme::LOAD,
                 11.0,
                 78.0,
@@ -631,7 +593,7 @@ impl ViewportCanvas<'_> {
             }
 
             let unit = axis * (1.0 / screen_length);
-            let normal = Vector::new(-unit.y, unit.x);
+            let normal = Vector::new(unit.y, -unit.x);
             let result_scale = self.result_screen_scale();
             let diagram_points = diagram
                 .points
@@ -1023,14 +985,42 @@ fn interpolate(a: Point, b: Point, t: f32) -> Point {
     Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
 
+fn load_arrow_span(
+    anchor: Point,
+    force_direction: Vector,
+    length: f32,
+    gap: f32,
+) -> (Point, Point) {
+    (
+        anchor - force_direction * length,
+        anchor - force_direction * gap,
+    )
+}
+
+fn distributed_load_stations(a: Point, b: Point) -> Vec<Point> {
+    let screen_length = distance(a, b);
+    let count = ((screen_length / 54.0).round() as usize).clamp(3, 7);
+
+    (0..count)
+        .map(|index| {
+            let t = if count == 1 {
+                0.5
+            } else {
+                index as f32 / (count - 1) as f32
+            };
+            interpolate(a, b, t)
+        })
+        .collect()
+}
+
 fn unit_vector(vector: Vector) -> Option<Vector> {
     let length = vector_length(vector);
     (length > f32::EPSILON).then_some(vector * (1.0 / length))
 }
 
-fn perpendicular_unit(a: Point, b: Point) -> Option<Vector> {
+fn local_y_screen_unit(a: Point, b: Point) -> Option<Vector> {
     let unit = unit_vector(b - a)?;
-    Some(Vector::new(-unit.y, unit.x))
+    Some(Vector::new(unit.y, -unit.x))
 }
 
 fn distributed_load_direction(
@@ -1040,7 +1030,7 @@ fn distributed_load_direction(
 ) -> Option<Vector> {
     match direction {
         DistributedLoadDirection::LocalX => unit_vector(b - a),
-        DistributedLoadDirection::LocalY => perpendicular_unit(a, b),
+        DistributedLoadDirection::LocalY => local_y_screen_unit(a, b),
         DistributedLoadDirection::GlobalX => Some(Vector::new(1.0, 0.0)),
         DistributedLoadDirection::GlobalY => Some(Vector::new(0.0, -1.0)),
         DistributedLoadDirection::LocalZ | DistributedLoadDirection::GlobalZ => None,
@@ -1067,4 +1057,103 @@ fn distance_to_segment(point: Point, a: Point, b: Point) -> f32 {
     let projection = Point::new(a.x + ab.x * t, a.y + ab.y * t);
 
     distance(point, projection)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_vector_close(actual: Vector, expected: Vector) {
+        assert!(
+            (actual.x - expected.x).abs() <= 1e-6 && (actual.y - expected.y).abs() <= 1e-6,
+            "expected ({:.6}, {:.6}), got ({:.6}, {:.6})",
+            expected.x,
+            expected.y,
+            actual.x,
+            actual.y
+        );
+    }
+
+    #[test]
+    fn point_load_directions_use_positive_x_right_and_positive_y_up() {
+        assert_vector_close(
+            point_load_direction(Dof::Ux).unwrap(),
+            Vector::new(1.0, 0.0),
+        );
+        assert_vector_close(
+            point_load_direction(Dof::Uy).unwrap(),
+            Vector::new(0.0, -1.0),
+        );
+    }
+
+    #[test]
+    fn point_load_arrow_points_in_signed_force_direction() {
+        let anchor = Point::new(100.0, 100.0);
+        let positive_y = point_load_direction(Dof::Uy).unwrap();
+        let (start, end) = load_arrow_span(anchor, positive_y, 40.0, 10.0);
+
+        assert!(end.y < start.y, "positive Uy should point upward on screen");
+
+        let negative_y = positive_y * -1.0;
+        let (start, end) = load_arrow_span(anchor, negative_y, 40.0, 10.0);
+
+        assert!(
+            end.y > start.y,
+            "negative Uy should point downward on screen"
+        );
+    }
+
+    #[test]
+    fn distributed_load_directions_match_global_axes() {
+        let a = Point::new(20.0, 80.0);
+        let b = Point::new(120.0, 80.0);
+
+        assert_vector_close(
+            distributed_load_direction(DistributedLoadDirection::GlobalX, a, b).unwrap(),
+            Vector::new(1.0, 0.0),
+        );
+        assert_vector_close(
+            distributed_load_direction(DistributedLoadDirection::GlobalY, a, b).unwrap(),
+            Vector::new(0.0, -1.0),
+        );
+    }
+
+    #[test]
+    fn distributed_load_directions_match_local_frame_axes() {
+        let horizontal_i = Point::new(20.0, 80.0);
+        let horizontal_j = Point::new(120.0, 80.0);
+
+        assert_vector_close(
+            distributed_load_direction(
+                DistributedLoadDirection::LocalX,
+                horizontal_i,
+                horizontal_j,
+            )
+            .unwrap(),
+            Vector::new(1.0, 0.0),
+        );
+        assert_vector_close(
+            distributed_load_direction(
+                DistributedLoadDirection::LocalY,
+                horizontal_i,
+                horizontal_j,
+            )
+            .unwrap(),
+            Vector::new(0.0, -1.0),
+        );
+
+        let vertical_i = Point::new(80.0, 120.0);
+        let vertical_j = Point::new(80.0, 20.0);
+
+        assert_vector_close(
+            distributed_load_direction(DistributedLoadDirection::LocalX, vertical_i, vertical_j)
+                .unwrap(),
+            Vector::new(0.0, -1.0),
+        );
+        assert_vector_close(
+            distributed_load_direction(DistributedLoadDirection::LocalY, vertical_i, vertical_j)
+                .unwrap(),
+            Vector::new(-1.0, 0.0),
+        );
+    }
 }
