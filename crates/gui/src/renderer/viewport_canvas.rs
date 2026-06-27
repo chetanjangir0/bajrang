@@ -368,6 +368,7 @@ impl ViewportCanvas<'_> {
             .iter()
             .map(|load| load.magnitude.abs())
             .fold(0.0, f64::max);
+        let load_scale = self.load_screen_scale();
 
         for load in &self.model.distributed_loads {
             let Some(element) = self.model.element(load.element_id) else {
@@ -392,7 +393,8 @@ impl ViewportCanvas<'_> {
             }
 
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
-            let height = 18.0 + 34.0 * (load.magnitude.abs() / max_distributed_load) as f32;
+            let height =
+                (18.0 + 34.0 * (load.magnitude.abs() / max_distributed_load) as f32) * load_scale;
             let offset = direction * signed * height;
             let qa = a + offset;
             let qb = b + offset;
@@ -453,7 +455,7 @@ impl ViewportCanvas<'_> {
             label(
                 frame,
                 format!("{:+.2} kN/m", load.magnitude / 1000.0),
-                interpolate(qa, qb, 0.5) + direction * signed * 14.0,
+                interpolate(qa, qb, 0.5) + direction * signed * 14.0 * load_scale,
                 theme::LOAD,
                 11.0,
                 92.0,
@@ -474,7 +476,7 @@ impl ViewportCanvas<'_> {
                         dof_label(load.dof),
                         load.magnitude / 1000.0
                     ),
-                    point + Vector::new(0.0, -32.0),
+                    point + Vector::new(0.0, -32.0 * load_scale),
                     theme::LOAD,
                     11.0,
                     92.0,
@@ -484,18 +486,18 @@ impl ViewportCanvas<'_> {
 
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
             let length = if max_point_load <= f64::EPSILON {
-                28.0
+                28.0 * load_scale
             } else {
-                24.0 + 24.0 * (load.magnitude.abs() / max_point_load) as f32
+                (24.0 + 24.0 * (load.magnitude.abs() / max_point_load) as f32) * load_scale
             };
-            let end = point + direction * signed * 11.0;
+            let end = point + direction * signed * 11.0 * load_scale;
             let start = point + direction * signed * length;
 
             draw_arrow(frame, start, end, theme::LOAD, 2.0);
             label(
                 frame,
                 format!("{:+.2} kN", load.magnitude / 1000.0),
-                start + direction * signed * 12.0,
+                start + direction * signed * 12.0 * load_scale,
                 theme::LOAD,
                 11.0,
                 78.0,
@@ -780,6 +782,10 @@ impl ViewportCanvas<'_> {
 
     fn result_screen_scale(&self) -> f32 {
         self.result_scale as f32 * self.viewport.zoom / DEFAULT_ZOOM
+    }
+
+    fn load_screen_scale(&self) -> f32 {
+        self.viewport.zoom / DEFAULT_ZOOM
     }
 
     fn member_force_color(&self, element_id: usize) -> Option<Color> {
