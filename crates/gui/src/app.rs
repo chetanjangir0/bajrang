@@ -9,7 +9,8 @@ use crate::{
     expression, panels,
     state::{
         AnalysisState, CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, ResultDisplay,
-        Selection, StructuralModel, SupportField, WorkspaceTool, run_basic_analysis,
+        Selection, StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool,
+        run_basic_analysis,
     },
     theme,
     viewport::{ViewportPress, ViewportState, ViewportUpdate},
@@ -29,7 +30,7 @@ pub struct BajrangApp {
     pub node_coordinate_edits: BTreeMap<(usize, CoordinateAxis), String>,
     pub member_endpoint_edits: BTreeMap<(usize, MemberEndpoint), String>,
     pub load_edits: BTreeMap<(usize, LoadField), String>,
-    pub support_edits: BTreeMap<(usize, SupportField), String>,
+    pub support_builder: Option<SupportBuilder>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,22 +63,21 @@ pub enum Message {
     LoadSubmitted {
         index: usize,
     },
-    SupportDraftChanged {
-        index: usize,
-        field: SupportField,
-        value: String,
-    },
-    SupportSubmitted {
-        index: usize,
-    },
     AddNodeRequested,
     AddMemberRequested,
     AddLoadRequested,
     AddSupportRequested,
+    AddSupportPresetRequested(SupportPreset),
+    CustomSupportDofToggled {
+        dof: Dof,
+        restrained: bool,
+    },
+    ApplyCustomSupportRequested,
+    CancelSupportRequested,
     DeleteNodeRequested(usize),
     DeleteMemberRequested(usize),
     DeleteLoadRequested(usize),
-    DeleteSupportRequested(usize),
+    DeleteSupportGroupRequested(usize),
     ViewportPressed(ViewportPress),
     ViewportChanged(ViewportUpdate),
     SolveRequested,
@@ -119,7 +119,7 @@ impl Default for BajrangApp {
             node_coordinate_edits: BTreeMap::new(),
             member_endpoint_edits: BTreeMap::new(),
             load_edits: BTreeMap::new(),
-            support_edits: BTreeMap::new(),
+            support_builder: None,
         }
     }
 }
@@ -177,22 +177,23 @@ impl BajrangApp {
                 self.load_edits.insert((index, field), value);
             }
             Message::LoadSubmitted { index } => self.handle_load_submit(index),
-            Message::SupportDraftChanged {
-                index,
-                field,
-                value,
-            } => {
-                self.support_edits.insert((index, field), value);
-            }
-            Message::SupportSubmitted { index } => self.handle_support_submit(index),
             Message::AddNodeRequested => self.add_node_from_tree(),
             Message::AddMemberRequested => self.add_member_from_tree(),
             Message::AddLoadRequested => self.add_load_from_tree(),
             Message::AddSupportRequested => self.add_support_from_tree(),
+            Message::AddSupportPresetRequested(preset) => self.add_support_preset(preset),
+            Message::CustomSupportDofToggled { dof, restrained } => {
+                self.toggle_custom_support_dof(dof, restrained);
+            }
+            Message::ApplyCustomSupportRequested => self.apply_custom_support(),
+            Message::CancelSupportRequested => {
+                self.support_builder = None;
+                self.set_status(StatusLevel::Neutral, "Support assignment cancelled");
+            }
             Message::DeleteNodeRequested(node_id) => self.delete_node(node_id),
             Message::DeleteMemberRequested(element_id) => self.delete_member(element_id),
             Message::DeleteLoadRequested(index) => self.delete_load(index),
-            Message::DeleteSupportRequested(index) => self.delete_support(index),
+            Message::DeleteSupportGroupRequested(node_id) => self.delete_support_group(node_id),
             Message::ViewportPressed(press) => self.handle_viewport_press(press),
             Message::ViewportChanged(update) => self.viewport.apply(update),
             Message::SolveRequested => self.solve(),
@@ -250,7 +251,7 @@ impl BajrangApp {
                 &self.node_coordinate_edits,
                 &self.member_endpoint_edits,
                 &self.load_edits,
-                &self.support_edits,
+                self.support_builder,
             ),
         };
 
@@ -478,23 +479,88 @@ impl BajrangApp {
     }
 
     fn add_support_from_tree(&mut self) {
-        let node_id = match self.selection {
-            Some(Selection::Node(node_id)) => Some(node_id),
-            _ => self.model.nodes.first().map(|node| node.id),
+        let Some(Selection::Node(node_id)) = self.selection else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select one node before adding a support",
+            );
+            return;
         };
 
-        let result = match node_id {
-            Some(node_id) => self.model.assign_pin_support(node_id),
-            None => self.model.assign_pin_support_to_first_node(),
+        self.support_builder = Some(SupportBuilder::new(node_id));
+        self.draft.clear();
+        self.set_status(
+            StatusLevel::Neutral,
+            format!("Choose a support type for node {node_id}"),
+        );
+    }
+
+    fn add_support_preset(&mut self, preset: SupportPreset) {
+        let Some(builder) = self.support_builder else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a node and use + before choosing a support",
+            );
+            return;
         };
 
+        let result = self.model.assign_support_preset(builder.node_id, preset);
         match result {
             Ok(index) => {
                 let node_id = self.model.supports[index].node_id;
                 self.selection = Some(Selection::Node(node_id));
                 self.draft.clear();
+                self.support_builder = None;
                 self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Support {index} added"));
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("{} support assigned to node {node_id}", preset.label()),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
+    fn toggle_custom_support_dof(&mut self, dof: Dof, restrained: bool) {
+        let Some(builder) = &mut self.support_builder else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a node and use + before editing a custom support",
+            );
+            return;
+        };
+
+        match dof {
+            Dof::Ux => builder.ux = restrained,
+            Dof::Uy => builder.uy = restrained,
+            Dof::Uz => builder.uz = restrained,
+            Dof::Rx => builder.rx = restrained,
+            Dof::Ry => builder.ry = restrained,
+            Dof::Rz => builder.rz = restrained,
+        }
+    }
+
+    fn apply_custom_support(&mut self) {
+        let Some(builder) = self.support_builder else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a node and use + before applying a custom support",
+            );
+            return;
+        };
+
+        let dofs = support_builder_dofs(builder);
+        match self.model.assign_custom_support(builder.node_id, &dofs) {
+            Ok(index) => {
+                let node_id = self.model.supports[index].node_id;
+                self.selection = Some(Selection::Node(node_id));
+                self.draft.clear();
+                self.support_builder = None;
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Custom support assigned to node {node_id}"),
+                );
             }
             Err(error) => self.set_status(StatusLevel::Warning, error),
         }
@@ -541,13 +607,16 @@ impl BajrangApp {
         }
     }
 
-    fn delete_support(&mut self, index: usize) {
-        match self.model.remove_support(index) {
+    fn delete_support_group(&mut self, node_id: usize) {
+        match self.model.remove_supports_at_node(node_id) {
             Ok(()) => {
-                self.support_edits.clear();
+                self.support_builder = None;
                 self.draft.clear();
                 self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Support {index} deleted"));
+                self.set_status(
+                    StatusLevel::Success,
+                    format!("Supports removed from node {node_id}"),
+                );
             }
             Err(error) => self.set_status(StatusLevel::Warning, error),
         }
@@ -716,54 +785,6 @@ impl BajrangApp {
         }
     }
 
-    fn handle_support_submit(&mut self, index: usize) {
-        let Some(support) = self.model.supports.get(index) else {
-            self.set_status(
-                StatusLevel::Warning,
-                format!("Support {index} does not exist."),
-            );
-            return;
-        };
-
-        let node_text = self
-            .support_edits
-            .get(&(index, SupportField::Node))
-            .cloned()
-            .unwrap_or_else(|| support.node_id.to_string());
-        let dof_text = self
-            .support_edits
-            .get(&(index, SupportField::Dof))
-            .cloned()
-            .unwrap_or_else(|| dof_value(support.dof));
-
-        let node_id = match parse_usize(node_text.trim(), "support node id") {
-            Ok(value) => value,
-            Err(error) => {
-                self.set_status(StatusLevel::Warning, error);
-                return;
-            }
-        };
-        let dof = match parse_dof(&dof_text) {
-            Ok(value) => value,
-            Err(error) => {
-                self.set_status(StatusLevel::Warning, error);
-                return;
-            }
-        };
-
-        match self.model.update_support(index, node_id, dof) {
-            Ok(()) => {
-                self.support_edits.remove(&(index, SupportField::Node));
-                self.support_edits.remove(&(index, SupportField::Dof));
-                self.selection = Some(Selection::Node(node_id));
-                self.draft.clear();
-                self.analysis = AnalysisState::Idle;
-                self.set_status(StatusLevel::Success, format!("Support {index} updated"));
-            }
-            Err(error) => self.set_status(StatusLevel::Warning, error),
-        }
-    }
-
     fn handle_member_press(&mut self, target: Option<Selection>) {
         let Some(Selection::Node(node_id)) = target else {
             self.set_status(StatusLevel::Warning, "Select a node endpoint");
@@ -817,17 +838,12 @@ impl BajrangApp {
             return;
         };
 
-        match self.model.assign_pin_support(node_id) {
-            Ok(_) => {
-                self.selection = Some(Selection::Node(node_id));
-                self.analysis = AnalysisState::Idle;
-                self.set_status(
-                    StatusLevel::Success,
-                    format!("Pin support assigned to node {node_id}"),
-                );
-            }
-            Err(error) => self.set_status(StatusLevel::Warning, error),
-        }
+        self.selection = Some(Selection::Node(node_id));
+        self.draft.clear();
+        self.set_status(
+            StatusLevel::Neutral,
+            format!("Node {node_id} selected. Use + in Supports to assign restraints"),
+        );
     }
 
     fn solve(&mut self) {
@@ -859,8 +875,22 @@ impl BajrangApp {
         self.node_coordinate_edits.clear();
         self.member_endpoint_edits.clear();
         self.load_edits.clear();
-        self.support_edits.clear();
+        self.support_builder = None;
     }
+}
+
+fn support_builder_dofs(builder: SupportBuilder) -> Vec<Dof> {
+    [
+        (builder.ux, Dof::Ux),
+        (builder.uy, Dof::Uy),
+        (builder.uz, Dof::Uz),
+        (builder.rx, Dof::Rx),
+        (builder.ry, Dof::Ry),
+        (builder.rz, Dof::Rz),
+    ]
+    .into_iter()
+    .filter_map(|(restrained, dof)| restrained.then_some(dof))
+    .collect()
 }
 
 fn coordinate_text(node: &model::node::Node, axis: CoordinateAxis) -> String {

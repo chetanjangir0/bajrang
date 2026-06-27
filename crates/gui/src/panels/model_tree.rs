@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Alignment, Element, Fill, Length};
+use model::dof::Dof;
 
 use crate::{
     app::Message,
     state::{
         CoordinateAxis, InteractionDraft, LoadField, MemberEndpoint, Selection, StructuralModel,
-        SupportField, WorkspaceTool, dof_label, element_data, element_id, element_kind,
+        SupportBuilder, SupportPreset, WorkspaceTool, dof_label, element_data, element_id,
+        element_kind,
     },
     theme,
 };
@@ -20,7 +22,7 @@ pub fn view<'a>(
     node_coordinate_edits: &'a BTreeMap<(usize, CoordinateAxis), String>,
     member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
     load_edits: &'a BTreeMap<(usize, LoadField), String>,
-    support_edits: &'a BTreeMap<(usize, SupportField), String>,
+    support_builder: Option<SupportBuilder>,
 ) -> Element<'a, Message> {
     let filter = ModelTreeFilter::for_tool(tool);
     let mut tree = column![panel_title(filter.title()), summary(model, filter),]
@@ -48,7 +50,12 @@ pub fn view<'a>(
     }
 
     if filter.show_supports {
-        tree = tree.push(supports(model, filter.edit_supports(), support_edits));
+        tree = tree.push(supports(
+            model,
+            selection,
+            filter.edit_supports(),
+            support_builder,
+        ));
     }
 
     if filter.show_loads {
@@ -260,39 +267,49 @@ fn members<'a>(
 
 fn supports<'a>(
     model: &'a StructuralModel,
+    selection: Option<Selection>,
     editable: bool,
-    support_edits: &'a BTreeMap<(usize, SupportField), String>,
+    support_builder: Option<SupportBuilder>,
 ) -> Element<'a, Message> {
-    if model.supports.is_empty() {
-        return empty_section(
-            "Supports",
-            "No supports assigned",
-            add_message(editable, EntityKind::Support),
-        );
+    let mut section = section("Supports", add_message(editable, EntityKind::Support));
+
+    if editable {
+        if let Some(builder) = support_builder {
+            section = section.push(support_builder_panel(builder));
+        } else {
+            section = section.push(
+                container(
+                    text("Select a node, then use + to assign a support")
+                        .size(13)
+                        .color(theme::TEXT_MUTED),
+                )
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+            );
+        }
     }
 
-    model
-        .supports
-        .iter()
-        .enumerate()
-        .fold(
-            section("Supports", add_message(editable, EntityKind::Support)),
-            |column, (index, support)| {
-                if editable {
-                    column.push(editable_support_row(
-                        index,
-                        support.node_id,
-                        dof_label(support.dof),
-                        support_edits,
-                    ))
-                } else {
-                    column.push(static_row(
-                        format!("N{}", support.node_id),
-                        dof_label(support.dof).to_string(),
-                    ))
-                }
-            },
-        )
+    if model.supports.is_empty() {
+        return section
+            .push(
+                container(
+                    text("No supports assigned")
+                        .size(13)
+                        .color(theme::TEXT_MUTED),
+                )
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+            )
+            .into();
+    }
+
+    grouped_supports(model)
+        .into_iter()
+        .fold(section, |column, group| {
+            column.push(support_group_row(group, selection, editable))
+        })
         .into()
 }
 
@@ -547,34 +564,197 @@ fn editable_load_row(
         .into()
 }
 
-fn editable_support_row(
-    index: usize,
+#[derive(Debug, Clone)]
+struct SupportGroup {
     node_id: usize,
-    dof: &'static str,
-    support_edits: &BTreeMap<(usize, SupportField), String>,
+    dofs: Vec<Dof>,
+}
+
+fn grouped_supports(model: &StructuralModel) -> Vec<SupportGroup> {
+    let mut groups: BTreeMap<usize, Vec<Dof>> = BTreeMap::new();
+
+    for support in &model.supports {
+        groups.entry(support.node_id).or_default().push(support.dof);
+    }
+
+    groups
+        .into_iter()
+        .map(|(node_id, mut dofs)| {
+            dofs.sort_by_key(|dof| dof_order(*dof));
+            SupportGroup { node_id, dofs }
+        })
+        .collect()
+}
+
+fn support_group_row(
+    group: SupportGroup,
+    selection: Option<Selection>,
+    editable: bool,
 ) -> Element<'static, Message> {
+    let selected = selection == Some(Selection::Node(group.node_id));
+    let node_id = group.node_id;
+    let detail = support_group_detail(&group);
+
     let content = row![
-        text(index.to_string())
-            .size(14)
-            .color(theme::TEXT)
-            .width(Length::Fixed(28.0)),
-        support_input(
-            index,
-            SupportField::Node,
-            node_id.to_string(),
-            support_edits
-        ),
-        support_input(index, SupportField::Dof, dof.to_string(), support_edits),
-        delete_button(Message::DeleteSupportRequested(index)),
+        button(
+            text(format!("N{node_id}"))
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
+        )
+        .style(if selected {
+            theme::tool_button_active
+        } else {
+            theme::tool_button
+        })
+        .padding([4, 6])
+        .width(Length::Fixed(44.0))
+        .on_press(Message::SelectionRequested(Some(Selection::Node(node_id)))),
+        column![
+            text(support_group_kind(&group.dofs))
+                .size(14)
+                .color(theme::TEXT),
+            text(detail).size(12).color(theme::TEXT_MUTED),
+        ]
+        .spacing(1)
+        .width(Fill),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
+
+    let content = if editable {
+        content.push(delete_button(Message::DeleteSupportGroupRequested(node_id)))
+    } else {
+        content
+    };
 
     container(content)
         .padding([4, 6])
         .width(Fill)
         .style(theme::neutral_row)
         .into()
+}
+
+fn support_builder_panel(builder: SupportBuilder) -> Element<'static, Message> {
+    let presets = row![
+        support_preset_button(SupportPreset::Pin),
+        support_preset_button(SupportPreset::Fixed),
+        support_preset_button(SupportPreset::Roller),
+    ]
+    .spacing(6)
+    .width(Fill);
+
+    let translations = row![
+        dof_toggle("Ux", Dof::Ux, builder.ux),
+        dof_toggle("Uy", Dof::Uy, builder.uy),
+        dof_toggle("Uz", Dof::Uz, builder.uz),
+    ]
+    .spacing(6)
+    .width(Fill);
+
+    let rotations = row![
+        dof_toggle("Rx", Dof::Rx, builder.rx),
+        dof_toggle("Ry", Dof::Ry, builder.ry),
+        dof_toggle("Rz", Dof::Rz, builder.rz),
+    ]
+    .spacing(6)
+    .width(Fill);
+
+    container(
+        column![
+            row![
+                text(format!("N{} support", builder.node_id))
+                    .size(14)
+                    .color(theme::TEXT)
+                    .width(Fill),
+                button(text("Cancel").size(12).color(theme::TEXT))
+                    .padding([3, 8])
+                    .style(theme::secondary_button)
+                    .on_press(Message::CancelSupportRequested),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text("Presets").size(12).color(theme::TEXT_MUTED),
+            presets,
+            text("Custom restraints").size(12).color(theme::TEXT_MUTED),
+            translations,
+            rotations,
+            button(text("Apply custom").size(13).color(theme::TEXT))
+                .padding([6, 10])
+                .width(Fill)
+                .style(theme::primary_button)
+                .on_press(Message::ApplyCustomSupportRequested),
+        ]
+        .spacing(7),
+    )
+    .padding(9)
+    .width(Fill)
+    .style(theme::inset)
+    .into()
+}
+
+fn support_preset_button(preset: SupportPreset) -> Element<'static, Message> {
+    button(text(preset.label()).size(13).color(theme::TEXT))
+        .padding([6, 8])
+        .width(Length::Fill)
+        .style(theme::secondary_button)
+        .on_press(Message::AddSupportPresetRequested(preset))
+        .into()
+}
+
+fn dof_toggle(label: &'static str, dof: Dof, active: bool) -> Element<'static, Message> {
+    button(text(label).size(13).color(theme::TEXT))
+        .padding([6, 8])
+        .width(Length::Fill)
+        .style(if active {
+            theme::tool_button_active
+        } else {
+            theme::secondary_button
+        })
+        .on_press(Message::CustomSupportDofToggled {
+            dof,
+            restrained: !active,
+        })
+        .into()
+}
+
+fn support_group_kind(dofs: &[Dof]) -> &'static str {
+    if dofs_match(dofs, &[Dof::Ux, Dof::Uy, Dof::Uz]) {
+        "Pin"
+    } else if dofs_match(
+        dofs,
+        &[Dof::Ux, Dof::Uy, Dof::Uz, Dof::Rx, Dof::Ry, Dof::Rz],
+    ) {
+        "Fixed"
+    } else if dofs_match(dofs, &[Dof::Uy]) {
+        "Roller"
+    } else {
+        "Custom"
+    }
+}
+
+fn support_group_detail(group: &SupportGroup) -> String {
+    group
+        .dofs
+        .iter()
+        .map(|dof| dof_label(*dof))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn dofs_match(actual: &[Dof], expected: &[Dof]) -> bool {
+    actual.len() == expected.len() && expected.iter().all(|dof| actual.contains(dof))
+}
+
+fn dof_order(dof: Dof) -> usize {
+    match dof {
+        Dof::Ux => 0,
+        Dof::Uy => 1,
+        Dof::Uz => 2,
+        Dof::Rx => 3,
+        Dof::Ry => 4,
+        Dof::Rz => 5,
+    }
 }
 
 fn coordinate_input(
@@ -645,31 +825,6 @@ fn load_input(
             value,
         })
         .on_submit(Message::LoadSubmitted { index })
-        .padding([4, 6])
-        .size(13)
-        .width(Length::Fill)
-        .style(theme::compact_input)
-        .into()
-}
-
-fn support_input(
-    index: usize,
-    field: SupportField,
-    fallback: String,
-    support_edits: &BTreeMap<(usize, SupportField), String>,
-) -> Element<'static, Message> {
-    let value = support_edits
-        .get(&(index, field))
-        .cloned()
-        .unwrap_or(fallback);
-
-    text_input(field.label(), &value)
-        .on_input(move |value| Message::SupportDraftChanged {
-            index,
-            field,
-            value,
-        })
-        .on_submit(Message::SupportSubmitted { index })
         .padding([4, 6])
         .size(13)
         .width(Length::Fill)

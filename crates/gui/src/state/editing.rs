@@ -37,17 +37,44 @@ impl LoadField {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SupportField {
-    Node,
-    Dof,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupportPreset {
+    Pin,
+    Fixed,
+    Roller,
 }
 
-impl SupportField {
+impl SupportPreset {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Node => "N",
-            Self::Dof => "DOF",
+            Self::Pin => "Pin",
+            Self::Fixed => "Fixed",
+            Self::Roller => "Roller",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SupportBuilder {
+    pub node_id: usize,
+    pub ux: bool,
+    pub uy: bool,
+    pub uz: bool,
+    pub rx: bool,
+    pub ry: bool,
+    pub rz: bool,
+}
+
+impl SupportBuilder {
+    pub fn new(node_id: usize) -> Self {
+        Self {
+            node_id,
+            ux: true,
+            uy: true,
+            uz: true,
+            rx: false,
+            ry: false,
+            rz: false,
         }
     }
 }

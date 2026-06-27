@@ -1,4 +1,4 @@
-use super::{CoordinateAxis, MemberEndpoint};
+use super::{CoordinateAxis, MemberEndpoint, SupportPreset};
 use model::{
     boundary::Support,
     dof::Dof,
@@ -279,14 +279,42 @@ impl StructuralModel {
         Ok(())
     }
 
-    pub fn assign_pin_support(&mut self, node_id: usize) -> Result<usize, String> {
+    pub fn assign_support_preset(
+        &mut self,
+        node_id: usize,
+        preset: SupportPreset,
+    ) -> Result<usize, String> {
+        let dofs: &[Dof] = match preset {
+            SupportPreset::Pin => &[Dof::Ux, Dof::Uy, Dof::Uz],
+            SupportPreset::Fixed => &[Dof::Ux, Dof::Uy, Dof::Uz, Dof::Rx, Dof::Ry, Dof::Rz],
+            SupportPreset::Roller => &[Dof::Uy],
+        };
+
+        self.assign_supports(node_id, dofs, preset.label())
+    }
+
+    pub fn assign_custom_support(&mut self, node_id: usize, dofs: &[Dof]) -> Result<usize, String> {
+        self.assign_supports(node_id, dofs, "Custom")
+    }
+
+    fn assign_supports(
+        &mut self,
+        node_id: usize,
+        dofs: &[Dof],
+        label: &str,
+    ) -> Result<usize, String> {
         if self.node(node_id).is_none() {
             return Err(format!("Node {node_id} does not exist."));
         }
 
+        if dofs.is_empty() {
+            return Err("Select at least one restrained DOF.".to_string());
+        }
+
         let first_added = self.supports.len();
 
-        for support in Support::pin(node_id) {
+        for dof in dofs {
+            let support = Support::new(node_id, *dof);
             if !self
                 .supports
                 .iter()
@@ -297,27 +325,21 @@ impl StructuralModel {
         }
 
         if self.supports.len() == first_added {
-            Err(format!("Pin support already exists at node {node_id}."))
+            Err(format!("{label} support already exists at node {node_id}."))
         } else {
             Ok(first_added)
         }
     }
 
-    pub fn assign_pin_support_to_first_node(&mut self) -> Result<usize, String> {
-        let Some(node_id) = self.nodes.first().map(|node| node.id) else {
-            return Err("Add a node before adding a support.".to_string());
-        };
+    pub fn remove_supports_at_node(&mut self, node_id: usize) -> Result<(), String> {
+        let initial_len = self.supports.len();
+        self.supports.retain(|support| support.node_id != node_id);
 
-        self.assign_pin_support(node_id)
-    }
-
-    pub fn remove_support(&mut self, index: usize) -> Result<(), String> {
-        if index >= self.supports.len() {
-            return Err(format!("Support {index} does not exist."));
+        if self.supports.len() == initial_len {
+            Err(format!("Node {node_id} has no supports."))
+        } else {
+            Ok(())
         }
-
-        self.supports.remove(index);
-        Ok(())
     }
 
     pub fn update_support(&mut self, index: usize, node_id: usize, dof: Dof) -> Result<(), String> {
@@ -521,6 +543,46 @@ mod tests {
     }
 
     #[test]
+    fn pin_support_preset_restrains_all_translations() {
+        let mut model = StructuralModel::empty();
+        let node_id = model.add_node(0.0, 0.0);
+
+        model
+            .assign_support_preset(node_id, SupportPreset::Pin)
+            .expect("pin support should be assigned");
+
+        let dofs = support_dofs_at_node(&model, node_id);
+        assert_eq!(dofs, vec![Dof::Ux, Dof::Uy, Dof::Uz]);
+    }
+
+    #[test]
+    fn rejects_custom_support_without_restrained_dofs() {
+        let mut model = StructuralModel::empty();
+        let node_id = model.add_node(0.0, 0.0);
+
+        let error = model
+            .assign_custom_support(node_id, &[])
+            .expect_err("empty support should be rejected");
+
+        assert_eq!(error, "Select at least one restrained DOF.");
+    }
+
+    #[test]
+    fn removes_supports_grouped_by_node() {
+        let mut model = StructuralModel::empty();
+        let node_id = model.add_node(0.0, 0.0);
+        model
+            .assign_support_preset(node_id, SupportPreset::Fixed)
+            .expect("fixed support should be assigned");
+
+        model
+            .remove_supports_at_node(node_id)
+            .expect("support group should be removed");
+
+        assert!(model.supports.is_empty());
+    }
+
+    #[test]
     fn removing_node_clears_dependent_entities() {
         let mut model = StructuralModel::sample();
 
@@ -548,5 +610,25 @@ mod tests {
             .expect("available node pair should create a member");
 
         assert_eq!(element_data(model.element(id).unwrap()), (id, 0, 1));
+    }
+
+    fn support_dofs_at_node(model: &StructuralModel, node_id: usize) -> Vec<Dof> {
+        let mut dofs = model
+            .supports
+            .iter()
+            .filter(|support| support.node_id == node_id)
+            .map(|support| support.dof)
+            .collect::<Vec<_>>();
+
+        dofs.sort_by_key(|dof| match dof {
+            Dof::Ux => 0,
+            Dof::Uy => 1,
+            Dof::Uz => 2,
+            Dof::Rx => 3,
+            Dof::Ry => 4,
+            Dof::Rz => 5,
+        });
+
+        dofs
     }
 }
