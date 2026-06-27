@@ -347,6 +347,23 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_loads(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.tool != WorkspaceTool::AssignLoad {
+            return;
+        }
+
+        let max_distributed_load = self
+            .model
+            .distributed_loads
+            .iter()
+            .map(|load| load.magnitude.abs())
+            .fold(0.0, f64::max);
+        let max_point_load = self
+            .model
+            .nodal_loads
+            .iter()
+            .map(|load| load.magnitude.abs())
+            .fold(0.0, f64::max);
+
         for load in &self.model.distributed_loads {
             let Some(element) = self.model.element(load.element_id) else {
                 continue;
@@ -365,27 +382,73 @@ impl ViewportCanvas<'_> {
             let Some(direction) = distributed_load_direction(load.direction.clone(), a, b) else {
                 continue;
             };
+            if max_distributed_load <= f64::EPSILON {
+                continue;
+            }
 
-            let normal = perpendicular_unit(a, b).unwrap_or(Vector::new(0.0, -1.0));
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
-            let offset = normal * 24.0 * signed;
+            let height = 18.0 + 34.0 * (load.magnitude.abs() / max_distributed_load) as f32;
+            let offset = direction * signed * height;
+            let qa = a + offset;
+            let qb = b + offset;
 
-            for step in 1..=4 {
-                let t = step as f32 / 5.0;
-                let point = interpolate(a, b, t);
-                draw_arrow(
-                    frame,
-                    point - direction * signed * 30.0 + offset,
-                    point + offset,
-                    theme::LOAD,
-                    1.7,
+            let load_area = canvas::Path::new(|builder| {
+                builder.move_to(a);
+                builder.line_to(qa);
+                builder.line_to(qb);
+                builder.line_to(b);
+                builder.line_to(a);
+            });
+            let load_outline = canvas::Path::new(|builder| {
+                builder.move_to(qa);
+                builder.line_to(qb);
+            });
+
+            frame.fill(
+                &load_area,
+                Color::from_rgba(theme::LOAD.r, theme::LOAD.g, theme::LOAD.b, 0.13),
+            );
+            frame.stroke(
+                &canvas::Path::line(a, b),
+                canvas::Stroke {
+                    style: canvas::Style::Solid(Color::from_rgba(
+                        theme::LOAD.r,
+                        theme::LOAD.g,
+                        theme::LOAD.b,
+                        0.42,
+                    )),
+                    width: 1.0,
+                    ..canvas::Stroke::default()
+                },
+            );
+            for (base, point) in [(a, qa), (b, qb)] {
+                frame.stroke(
+                    &canvas::Path::line(base, point),
+                    canvas::Stroke {
+                        style: canvas::Style::Solid(Color::from_rgba(
+                            theme::LOAD.r,
+                            theme::LOAD.g,
+                            theme::LOAD.b,
+                            0.62,
+                        )),
+                        width: 1.2,
+                        ..canvas::Stroke::default()
+                    },
                 );
             }
+            frame.stroke(
+                &load_outline,
+                canvas::Stroke {
+                    style: canvas::Style::Solid(theme::LOAD),
+                    width: 2.0,
+                    ..canvas::Stroke::default()
+                },
+            );
 
             label(
                 frame,
                 format!("{:+.2} kN/m", load.magnitude / 1000.0),
-                interpolate(a, b, 0.5) + offset + normal * 14.0,
+                interpolate(qa, qb, 0.5) + direction * signed * 14.0,
                 theme::LOAD,
                 11.0,
                 92.0,
@@ -415,10 +478,23 @@ impl ViewportCanvas<'_> {
             };
 
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
-            let end = point + direction * signed * 13.0;
-            let start = point + direction * signed * 44.0;
+            let length = if max_point_load <= f64::EPSILON {
+                28.0
+            } else {
+                24.0 + 24.0 * (load.magnitude.abs() / max_point_load) as f32
+            };
+            let end = point + direction * signed * 11.0;
+            let start = point + direction * signed * length;
 
             draw_arrow(frame, start, end, theme::LOAD, 2.0);
+            label(
+                frame,
+                format!("{:+.2} kN", load.magnitude / 1000.0),
+                start + direction * signed * 12.0,
+                theme::LOAD,
+                11.0,
+                78.0,
+            );
         }
     }
 
