@@ -227,10 +227,11 @@ impl ViewportCanvas<'_> {
             let b = self.node_screen_position(nj, bounds);
             let selected = self.selection == Some(Selection::Element(id));
 
-            let color = if matches!(
-                self.result_display,
-                ResultDisplay::MemberForces | ResultDisplay::Combined
-            ) {
+            let color = if self.tool == WorkspaceTool::Analyze
+                && matches!(
+                    self.result_display,
+                    ResultDisplay::MemberForces | ResultDisplay::Combined
+                ) {
                 self.member_force_color(id)
                     .unwrap_or(Color::from_rgb(0.812, 0.847, 0.867))
             } else if selected {
@@ -287,6 +288,10 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_deformed_members(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.tool != WorkspaceTool::Analyze {
+            return;
+        }
+
         if !matches!(
             self.result_display,
             ResultDisplay::Deformed | ResultDisplay::Displacements | ResultDisplay::Combined
@@ -499,6 +504,10 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_result_vectors(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.tool != WorkspaceTool::Analyze {
+            return;
+        }
+
         let Some(summary) = self.summary() else {
             return;
         };
@@ -571,6 +580,10 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_member_diagrams(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.tool != WorkspaceTool::Analyze {
+            return;
+        }
+
         let Some(kind) = diagram_kind(self.result_display) else {
             return;
         };
@@ -699,6 +712,10 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_result_legend(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
+        if self.tool != WorkspaceTool::Analyze {
+            return;
+        }
+
         if self.result_display == ResultDisplay::Model {
             return;
         }
