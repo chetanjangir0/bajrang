@@ -2,7 +2,7 @@ use super::{CoordinateAxis, MemberEndpoint, SupportPreset};
 use model::{
     boundary::Support,
     dof::Dof,
-    elements::{StructuralElement, frame2d::Frame2D, truss2d::Truss2D},
+    elements::{StructuralElement, frame2d::Frame2D},
     load::{DistributedLoad, DistributedLoadDirection, NodalLoad},
     material::Material,
     node::Node,
@@ -22,8 +22,7 @@ pub struct StructuralModel {
 impl StructuralModel {
     pub fn sample() -> Self {
         let material = Material::steel();
-        let frame_section = Section::new(0.006, 8.0e-6);
-        let truss_section = Section::truss(0.004);
+        let section = Section::new(0.006, 8.0e-6);
 
         let nodes = vec![
             Node::new(0, 0.0, 0.0),
@@ -33,29 +32,17 @@ impl StructuralModel {
         ];
 
         let elements = vec![
-            StructuralElement::Frame2D(Frame2D::new(
-                0,
-                0,
-                1,
-                material.clone(),
-                frame_section.clone(),
-            )),
-            StructuralElement::Frame2D(Frame2D::new(1, 1, 2, material.clone(), frame_section)),
-            StructuralElement::Truss2D(Truss2D::new(
-                2,
-                0,
-                3,
-                material.clone(),
-                truss_section.clone(),
-            )),
-            StructuralElement::Truss2D(Truss2D::new(3, 3, 2, material, truss_section)),
+            StructuralElement::Frame2D(Frame2D::new(0, 0, 1, material.clone(), section.clone())),
+            StructuralElement::Frame2D(Frame2D::new(1, 1, 2, material.clone(), section.clone())),
+            StructuralElement::Frame2D(Frame2D::new(2, 0, 3, material.clone(), section.clone())),
+            StructuralElement::Frame2D(Frame2D::new(3, 3, 2, material, section)),
         ];
 
         let mut supports = Support::pin(0);
         supports.extend(Support::roller_y(2));
 
         Self {
-            name: "Mixed 2D frame study".to_string(),
+            name: "Frame 2D study".to_string(),
             nodes,
             elements,
             supports,
@@ -519,6 +506,18 @@ fn snapped(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sample_model_uses_only_frame_2d_elements() {
+        let model = StructuralModel::sample();
+
+        assert!(
+            model
+                .elements
+                .iter()
+                .all(|element| { matches!(element, StructuralElement::Frame2D(_)) })
+        );
+    }
 
     #[test]
     fn updates_member_endpoint_when_node_exists() {
