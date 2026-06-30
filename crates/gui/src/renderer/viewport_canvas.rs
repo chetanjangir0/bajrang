@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bajrang_core::post::diagrams::DiagramKind;
 use iced::mouse;
 use iced::widget::canvas;
@@ -275,15 +277,6 @@ impl ViewportCanvas<'_> {
                     Color::from_rgb(0.902, 0.925, 0.941)
                 },
             );
-
-            label(
-                frame,
-                format!("N{}", node.id),
-                point + Vector::new(0.0, 17.0),
-                theme::TEXT,
-                12.0,
-                44.0,
-            );
         }
     }
 
@@ -327,27 +320,18 @@ impl ViewportCanvas<'_> {
     }
 
     fn draw_supports(&self, frame: &mut canvas::Frame, bounds: Rectangle) {
-        for support in &self.model.supports {
-            let Some(node) = self.model.node(support.node_id) else {
+        for (node_id, dofs) in grouped_support_dofs(self.model) {
+            let Some(node) = self.model.node(node_id) else {
                 continue;
             };
 
             let point = self.node_screen_position(node, bounds);
-            let path = canvas::Path::new(|builder| {
-                builder.move_to(Point::new(point.x, point.y + 8.0));
-                builder.line_to(Point::new(point.x - 9.0, point.y + 23.0));
-                builder.line_to(Point::new(point.x + 9.0, point.y + 23.0));
-                builder.close();
-            });
-
-            frame.stroke(
-                &path,
-                canvas::Stroke {
-                    style: canvas::Style::Solid(theme::SUPPORT),
-                    width: 1.5,
-                    ..canvas::Stroke::default()
-                },
-            );
+            match support_symbol(&dofs) {
+                SupportSymbol::Pin => draw_pin_support(frame, point),
+                SupportSymbol::Fixed => draw_fixed_support(frame, point),
+                SupportSymbol::Roller => draw_roller_support(frame, point),
+                SupportSymbol::Custom => draw_custom_support(frame, point, &dofs),
+            }
         }
     }
 
@@ -884,6 +868,181 @@ fn draw_arrow(frame: &mut canvas::Frame, start: Point, end: Point, color: Color,
     frame.fill(&head, color);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupportSymbol {
+    Pin,
+    Fixed,
+    Roller,
+    Custom,
+}
+
+fn grouped_support_dofs(model: &StructuralModel) -> Vec<(usize, Vec<Dof>)> {
+    let mut groups: BTreeMap<usize, Vec<Dof>> = BTreeMap::new();
+
+    for support in &model.supports {
+        groups.entry(support.node_id).or_default().push(support.dof);
+    }
+
+    groups
+        .into_iter()
+        .map(|(node_id, mut dofs)| {
+            dofs.sort_by_key(|dof| dof_order(*dof));
+            dofs.dedup();
+            (node_id, dofs)
+        })
+        .collect()
+}
+
+fn support_symbol(dofs: &[Dof]) -> SupportSymbol {
+    if dofs_match(dofs, &[Dof::Ux, Dof::Uy]) || dofs_match(dofs, &[Dof::Ux, Dof::Uy, Dof::Uz]) {
+        SupportSymbol::Pin
+    } else if dofs_match(dofs, &[Dof::Ux, Dof::Uy, Dof::Rz])
+        || dofs_match(
+            dofs,
+            &[Dof::Ux, Dof::Uy, Dof::Uz, Dof::Rx, Dof::Ry, Dof::Rz],
+        )
+    {
+        SupportSymbol::Fixed
+    } else if dofs_match(dofs, &[Dof::Uy]) {
+        SupportSymbol::Roller
+    } else {
+        SupportSymbol::Custom
+    }
+}
+
+fn draw_pin_support(frame: &mut canvas::Frame, point: Point) {
+    let apex = Point::new(point.x, point.y + 8.0);
+    let left = Point::new(point.x - 10.0, point.y + 24.0);
+    let right = Point::new(point.x + 10.0, point.y + 24.0);
+    let ground_left = Point::new(point.x - 14.0, point.y + 24.0);
+    let ground_right = Point::new(point.x + 14.0, point.y + 24.0);
+    let path = canvas::Path::new(|builder| {
+        builder.move_to(apex);
+        builder.line_to(left);
+        builder.line_to(right);
+        builder.close();
+    });
+
+    frame.fill(&path, support_fill());
+    frame.stroke(&path, support_stroke(1.6));
+    draw_ground_line(frame, ground_left, ground_right);
+}
+
+fn draw_fixed_support(frame: &mut canvas::Frame, point: Point) {
+    let left = point.x - 10.0;
+    let right = point.x + 10.0;
+    let top = point.y + 8.0;
+    let bottom = point.y + 26.0;
+    let plate = canvas::Path::rectangle(Point::new(left, top), iced::Size::new(20.0, 18.0));
+
+    frame.fill(&plate, support_fill());
+    frame.stroke(&plate, support_stroke(1.7));
+    frame.stroke(
+        &canvas::Path::line(Point::new(point.x, point.y + 3.0), Point::new(point.x, top)),
+        support_stroke(1.7),
+    );
+    draw_ground_line(
+        frame,
+        Point::new(left - 3.0, bottom),
+        Point::new(right + 3.0, bottom),
+    );
+}
+
+fn draw_roller_support(frame: &mut canvas::Frame, point: Point) {
+    let apex = Point::new(point.x, point.y + 8.0);
+    let left = Point::new(point.x - 10.0, point.y + 22.0);
+    let right = Point::new(point.x + 10.0, point.y + 22.0);
+    let base_left = Point::new(point.x - 13.0, point.y + 31.0);
+    let base_right = Point::new(point.x + 13.0, point.y + 31.0);
+    let path = canvas::Path::new(|builder| {
+        builder.move_to(apex);
+        builder.line_to(left);
+        builder.line_to(right);
+        builder.close();
+    });
+
+    frame.fill(&path, support_fill());
+    frame.stroke(&path, support_stroke(1.6));
+
+    for x in [point.x - 6.0, point.x + 6.0] {
+        frame.stroke(
+            &canvas::Path::circle(Point::new(x, point.y + 27.0), 3.0),
+            support_stroke(1.3),
+        );
+    }
+
+    draw_ground_line(frame, base_left, base_right);
+}
+
+fn draw_custom_support(frame: &mut canvas::Frame, point: Point, dofs: &[Dof]) {
+    let path = canvas::Path::new(|builder| {
+        builder.move_to(Point::new(point.x, point.y + 7.0));
+        builder.line_to(Point::new(point.x + 10.0, point.y + 17.0));
+        builder.line_to(Point::new(point.x, point.y + 27.0));
+        builder.line_to(Point::new(point.x - 10.0, point.y + 17.0));
+        builder.close();
+    });
+
+    frame.fill(&path, support_fill());
+    frame.stroke(&path, support_stroke(1.6));
+
+    for (index, dof) in dofs.iter().take(4).enumerate() {
+        let offset = index as f32 * 4.0 - 6.0;
+        let center = Point::new(point.x + offset, point.y + 17.0);
+        match dof {
+            Dof::Ux | Dof::Uy | Dof::Uz => {
+                frame.fill(&canvas::Path::circle(center, 1.7), theme::SUPPORT)
+            }
+            Dof::Rx | Dof::Ry | Dof::Rz => {
+                frame.stroke(&canvas::Path::circle(center, 2.2), support_stroke(1.0))
+            }
+        }
+    }
+}
+
+fn draw_ground_line(frame: &mut canvas::Frame, left: Point, right: Point) {
+    frame.stroke(&canvas::Path::line(left, right), support_stroke(1.4));
+
+    let mut x = left.x + 2.0;
+    while x < right.x {
+        frame.stroke(
+            &canvas::Path::line(
+                Point::new(x, left.y + 1.0),
+                Point::new(x - 5.0, left.y + 7.0),
+            ),
+            support_stroke(1.0),
+        );
+        x += 6.0;
+    }
+}
+
+fn support_stroke(width: f32) -> canvas::Stroke<'static> {
+    canvas::Stroke {
+        style: canvas::Style::Solid(theme::SUPPORT),
+        width,
+        ..canvas::Stroke::default()
+    }
+}
+
+fn support_fill() -> Color {
+    Color::from_rgba(theme::SUPPORT.r, theme::SUPPORT.g, theme::SUPPORT.b, 0.24)
+}
+
+fn dofs_match(actual: &[Dof], expected: &[Dof]) -> bool {
+    actual.len() == expected.len() && expected.iter().all(|dof| actual.contains(dof))
+}
+
+fn dof_order(dof: Dof) -> usize {
+    match dof {
+        Dof::Ux => 0,
+        Dof::Uy => 1,
+        Dof::Uz => 2,
+        Dof::Rx => 3,
+        Dof::Ry => 4,
+        Dof::Rz => 5,
+    }
+}
+
 fn displacement(summary: &crate::state::AnalysisSummary, node_id: usize, dof: Dof) -> f64 {
     summary
         .displacements
@@ -1154,6 +1313,33 @@ mod tests {
             distributed_load_direction(DistributedLoadDirection::LocalY, vertical_i, vertical_j)
                 .unwrap(),
             Vector::new(-1.0, 0.0),
+        );
+    }
+
+    #[test]
+    fn support_symbols_match_standard_restraint_sets() {
+        assert_eq!(support_symbol(&[Dof::Ux, Dof::Uy]), SupportSymbol::Pin);
+        assert_eq!(
+            support_symbol(&[Dof::Ux, Dof::Uy, Dof::Uz]),
+            SupportSymbol::Pin
+        );
+        assert_eq!(support_symbol(&[Dof::Uy]), SupportSymbol::Roller);
+        assert_eq!(
+            support_symbol(&[Dof::Ux, Dof::Uy, Dof::Rz]),
+            SupportSymbol::Fixed
+        );
+        assert_eq!(
+            support_symbol(&[Dof::Ux, Dof::Uy, Dof::Uz, Dof::Rx, Dof::Ry, Dof::Rz]),
+            SupportSymbol::Fixed
+        );
+    }
+
+    #[test]
+    fn support_symbols_treat_nonstandard_restraints_as_custom() {
+        assert_eq!(support_symbol(&[Dof::Ux]), SupportSymbol::Custom);
+        assert_eq!(
+            support_symbol(&[Dof::Ux, Dof::Ry, Dof::Rz]),
+            SupportSymbol::Custom
         );
     }
 }
