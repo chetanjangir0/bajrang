@@ -369,39 +369,27 @@ impl ViewportCanvas<'_> {
 
             let a = self.node_screen_position(ni, bounds);
             let b = self.node_screen_position(nj, bounds);
-            let Some(direction) = distributed_load_direction(load.direction.clone(), a, b) else {
-                continue;
-            };
             if max_distributed_load <= f64::EPSILON {
                 continue;
             }
 
             let signed = if load.magnitude >= 0.0 { 1.0 } else { -1.0 };
-            let height =
-                (18.0 + 34.0 * (load.magnitude.abs() / max_distributed_load) as f32) * load_scale;
-            let force_direction = direction * signed;
-            frame.stroke(
-                &canvas::Path::line(a, b),
-                canvas::Stroke {
-                    style: canvas::Style::Solid(Color::from_rgba(
-                        theme::LOAD.r,
-                        theme::LOAD.g,
-                        theme::LOAD.b,
-                        0.42,
-                    )),
-                    width: 1.0,
-                    ..canvas::Stroke::default()
-                },
-            );
-            for station in distributed_load_stations(a, b) {
-                let (start, end) = load_arrow_span(station, force_direction, height, 6.0);
-                draw_arrow(frame, start, end, theme::LOAD, 1.6);
-            }
+            let Some(force_direction) = distributed_load_direction(load.direction.clone(), a, b)
+                .map(|direction| {
+                    direction
+                        * signed
+                        * (load.magnitude.abs() / max_distributed_load) as f32
+                        * self.load_diagram_screen_scale()
+                })
+            else {
+                continue;
+            };
+            draw_distributed_load_diagram(frame, a, b, force_direction);
 
             label(
                 frame,
                 format!("{:+.2} kN/m", load.magnitude / 1000.0),
-                interpolate(a, b, 0.5) - force_direction * (height + 14.0 * load_scale),
+                distributed_load_label_position(a, b, force_direction),
                 theme::LOAD,
                 11.0,
                 92.0,
@@ -732,6 +720,10 @@ impl ViewportCanvas<'_> {
 
     fn load_screen_scale(&self) -> f32 {
         self.viewport.zoom / DEFAULT_ZOOM
+    }
+
+    fn load_diagram_screen_scale(&self) -> f32 {
+        44.0 * self.viewport.zoom / DEFAULT_ZOOM
     }
 
     fn member_force_color(&self, element_id: usize) -> Option<Color> {
@@ -1156,16 +1148,96 @@ fn load_arrow_span(
     )
 }
 
-fn distributed_load_stations(a: Point, b: Point) -> Vec<Point> {
-    let screen_length = distance(a, b);
-    let count = ((screen_length / 54.0).round() as usize).clamp(3, 7);
+const DISTRIBUTED_LOAD_ARROW_COUNT: usize = 5;
 
-    (0..count)
+fn draw_distributed_load_diagram(
+    frame: &mut canvas::Frame,
+    a: Point,
+    b: Point,
+    diagram_offset: Vector,
+) {
+    let diagram_points = distributed_load_stations(a, b)
+        .into_iter()
+        .map(|station| station - diagram_offset)
+        .collect::<Vec<_>>();
+
+    let Some(first) = diagram_points.first().copied() else {
+        return;
+    };
+    let Some(last) = diagram_points.last().copied() else {
+        return;
+    };
+
+    let area = canvas::Path::new(|builder| {
+        builder.move_to(a);
+        builder.line_to(first);
+        for point in diagram_points.iter().skip(1) {
+            builder.line_to(*point);
+        }
+        builder.line_to(b);
+        builder.line_to(a);
+    });
+    let diagram_path = canvas::Path::new(|builder| {
+        builder.move_to(first);
+        for point in diagram_points.iter().skip(1) {
+            builder.line_to(*point);
+        }
+    });
+    let outline_color = Color::from_rgba(theme::LOAD.r, theme::LOAD.g, theme::LOAD.b, 0.62);
+
+    frame.fill(
+        &area,
+        Color::from_rgba(theme::LOAD.r, theme::LOAD.g, theme::LOAD.b, 0.10),
+    );
+    frame.stroke(
+        &area,
+        canvas::Stroke {
+            style: canvas::Style::Solid(outline_color),
+            width: 1.1,
+            ..canvas::Stroke::default()
+        },
+    );
+
+    for (base, point) in [(a, first), (b, last)] {
+        frame.stroke(
+            &canvas::Path::line(base, point),
+            canvas::Stroke {
+                style: canvas::Style::Solid(outline_color),
+                width: 1.2,
+                ..canvas::Stroke::default()
+            },
+        );
+    }
+
+    frame.stroke(
+        &diagram_path,
+        canvas::Stroke {
+            style: canvas::Style::Solid(theme::LOAD),
+            width: 1.8,
+            ..canvas::Stroke::default()
+        },
+    );
+
+    for (station, point) in distributed_load_stations(a, b)
+        .into_iter()
+        .zip(diagram_points)
+    {
+        draw_arrow(frame, point, station, theme::LOAD, 1.6);
+    }
+}
+
+fn distributed_load_label_position(a: Point, b: Point, diagram_offset: Vector) -> Point {
+    let outward = unit_vector(diagram_offset).unwrap_or(Vector::new(0.0, -1.0));
+    interpolate(a, b, 0.5) - diagram_offset - outward * 14.0
+}
+
+fn distributed_load_stations(a: Point, b: Point) -> Vec<Point> {
+    (0..DISTRIBUTED_LOAD_ARROW_COUNT)
         .map(|index| {
-            let t = if count == 1 {
+            let t = if DISTRIBUTED_LOAD_ARROW_COUNT == 1 {
                 0.5
             } else {
-                index as f32 / (count - 1) as f32
+                index as f32 / (DISTRIBUTED_LOAD_ARROW_COUNT - 1) as f32
             };
             interpolate(a, b, t)
         })
@@ -1275,6 +1347,26 @@ mod tests {
             distributed_load_direction(DistributedLoadDirection::GlobalY, a, b).unwrap(),
             Vector::new(0.0, -1.0),
         );
+    }
+
+    #[test]
+    fn distributed_load_station_count_is_zoom_independent() {
+        let short_member = distributed_load_stations(Point::new(0.0, 0.0), Point::new(40.0, 0.0));
+        let long_member = distributed_load_stations(Point::new(0.0, 0.0), Point::new(400.0, 0.0));
+
+        assert_eq!(short_member.len(), DISTRIBUTED_LOAD_ARROW_COUNT);
+        assert_eq!(long_member.len(), DISTRIBUTED_LOAD_ARROW_COUNT);
+    }
+
+    #[test]
+    fn distributed_load_label_sits_outside_diagram_offset() {
+        let position = distributed_load_label_position(
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Vector::new(0.0, -40.0),
+        );
+
+        assert_vector_close(position - Point::new(0.0, 0.0), Vector::new(50.0, 54.0));
     }
 
     #[test]
