@@ -3,14 +3,15 @@ use std::collections::BTreeMap;
 use iced::keyboard::{self, Key, key};
 use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Length, Subscription, Task};
+use model::section::{ParametricSection, ParametricSectionKind, Section};
 use model::{dof::Dof, load::DistributedLoadDirection};
 
 use crate::{
     expression, panels,
     state::{
         AnalysisState, CoordinateAxis, InteractionDraft, LoadBuilder, LoadTarget, MemberEndpoint,
-        ResultDisplay, Selection, StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool,
-        run_basic_analysis,
+        ResultDisplay, SectionBuilder, SectionField, Selection, StructuralModel, SupportBuilder,
+        SupportPreset, WorkspaceTool, run_basic_analysis,
     },
     theme,
     viewport::{ViewportPress, ViewportState, ViewportUpdate},
@@ -31,6 +32,7 @@ pub struct BajrangApp {
     pub member_endpoint_edits: BTreeMap<(usize, MemberEndpoint), String>,
     pub load_builder: Option<LoadBuilder>,
     pub support_builder: Option<SupportBuilder>,
+    pub section_builder: Option<SectionBuilder>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +73,14 @@ pub enum Message {
     },
     ApplyCustomSupportRequested,
     CancelSupportRequested,
+    AddSectionRequested,
+    SectionKindSelected(ParametricSectionKind),
+    SectionFieldChanged {
+        field: SectionField,
+        value: String,
+    },
+    ApplySectionRequested,
+    CancelSectionRequested,
     DeleteNodeRequested(usize),
     DeleteMemberRequested(usize),
     DeletePointLoadRequested(usize),
@@ -118,6 +128,7 @@ impl Default for BajrangApp {
             member_endpoint_edits: BTreeMap::new(),
             load_builder: None,
             support_builder: None,
+            section_builder: None,
         }
     }
 }
@@ -200,6 +211,22 @@ impl BajrangApp {
                 self.support_builder = None;
                 self.set_status(StatusLevel::Neutral, "Support assignment cancelled");
             }
+            Message::AddSectionRequested => self.add_section_from_tree(),
+            Message::SectionKindSelected(kind) => {
+                if let Some(builder) = &mut self.section_builder {
+                    builder.kind = kind;
+                }
+            }
+            Message::SectionFieldChanged { field, value } => {
+                if let Some(builder) = &mut self.section_builder {
+                    builder.set_field_value(field, value);
+                }
+            }
+            Message::ApplySectionRequested => self.apply_section(),
+            Message::CancelSectionRequested => {
+                self.section_builder = None;
+                self.set_status(StatusLevel::Neutral, "Section edit cancelled");
+            }
             Message::DeleteNodeRequested(node_id) => self.delete_node(node_id),
             Message::DeleteMemberRequested(element_id) => self.delete_member(element_id),
             Message::DeletePointLoadRequested(index) => self.delete_point_load(index),
@@ -263,6 +290,7 @@ impl BajrangApp {
                 &self.member_endpoint_edits,
                 self.load_builder.clone(),
                 self.support_builder,
+                self.section_builder.clone(),
             ),
         };
 
@@ -424,6 +452,7 @@ impl BajrangApp {
                 self.set_status(StatusLevel::Success, format!("Node {id} added"));
             }
             WorkspaceTool::DrawMember => self.handle_member_press(press.target),
+            WorkspaceTool::AssignSection => self.handle_section_press(press.target),
             WorkspaceTool::AssignLoad => self.handle_load_press(press.target),
             WorkspaceTool::AssignSupport => self.handle_support_press(press.target),
         }
@@ -630,6 +659,81 @@ impl BajrangApp {
         }
     }
 
+    fn add_section_from_tree(&mut self) {
+        let Some(Selection::Element(element_id)) = self.selection else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select one member before editing its section",
+            );
+            return;
+        };
+
+        self.start_section_edit(element_id);
+    }
+
+    fn start_section_edit(&mut self, element_id: usize) {
+        if self.model.element(element_id).is_none() {
+            self.set_status(
+                StatusLevel::Warning,
+                format!("Member {element_id} does not exist."),
+            );
+            return;
+        }
+
+        self.section_builder = Some(SectionBuilder::new(element_id));
+        self.selection = Some(Selection::Element(element_id));
+        self.set_status(
+            StatusLevel::Neutral,
+            format!("Editing parametric section for member {element_id}"),
+        );
+    }
+
+    fn apply_section(&mut self) {
+        let Some(builder) = self.section_builder.clone() else {
+            self.set_status(
+                StatusLevel::Warning,
+                "Select a member before applying a section",
+            );
+            return;
+        };
+
+        let parametric = match build_parametric_section(&builder) {
+            Ok(section) => section,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error);
+                return;
+            }
+        };
+
+        let section = match Section::from_parametric(parametric) {
+            Ok(section) => section,
+            Err(error) => {
+                self.set_status(StatusLevel::Warning, error.to_string());
+                return;
+            }
+        };
+
+        match self
+            .model
+            .update_member_section(builder.element_id, section)
+        {
+            Ok(()) => {
+                self.selection = Some(Selection::Element(builder.element_id));
+                self.section_builder = None;
+                self.analysis = AnalysisState::Idle;
+                self.set_status(
+                    StatusLevel::Success,
+                    format!(
+                        "{} section applied to member {}",
+                        builder.kind.label(),
+                        builder.element_id
+                    ),
+                );
+            }
+            Err(error) => self.set_status(StatusLevel::Warning, error),
+        }
+    }
+
     fn delete_node(&mut self, node_id: usize) {
         match self.model.remove_node(node_id) {
             Ok(()) => {
@@ -652,6 +756,13 @@ impl BajrangApp {
                 self.draft.clear();
                 self.member_endpoint_edits
                     .retain(|(id, _), _| *id != element_id);
+                if self
+                    .section_builder
+                    .as_ref()
+                    .is_some_and(|builder| builder.element_id == element_id)
+                {
+                    self.section_builder = None;
+                }
                 self.analysis = AnalysisState::Idle;
                 self.set_status(StatusLevel::Success, format!("Member {element_id} deleted"));
             }
@@ -845,6 +956,20 @@ impl BajrangApp {
         );
     }
 
+    fn handle_section_press(&mut self, target: Option<Selection>) {
+        let Some(Selection::Element(element_id)) = target else {
+            self.set_status(StatusLevel::Warning, "Select a member for the section");
+            return;
+        };
+
+        self.selection = Some(Selection::Element(element_id));
+        self.draft.clear();
+        self.set_status(
+            StatusLevel::Neutral,
+            "Selection ready. Use + in Sections to edit the member section",
+        );
+    }
+
     fn handle_support_press(&mut self, target: Option<Selection>) {
         let Some(Selection::Node(node_id)) = target else {
             self.set_status(StatusLevel::Warning, "Select a node for the support");
@@ -889,7 +1014,66 @@ impl BajrangApp {
         self.member_endpoint_edits.clear();
         self.load_builder = None;
         self.support_builder = None;
+        self.section_builder = None;
     }
+}
+
+fn build_parametric_section(builder: &SectionBuilder) -> Result<ParametricSection, String> {
+    match builder.kind {
+        ParametricSectionKind::Rectangle => Ok(ParametricSection::Rectangle {
+            width: parse_section_dimension(builder.field_value(SectionField::Width), "width")?,
+            depth: parse_section_dimension(builder.field_value(SectionField::Depth), "depth")?,
+        }),
+        ParametricSectionKind::Circle => Ok(ParametricSection::Circle {
+            diameter: parse_section_dimension(
+                builder.field_value(SectionField::Diameter),
+                "diameter",
+            )?,
+        }),
+        ParametricSectionKind::HollowRectangle => Ok(ParametricSection::HollowRectangle {
+            width: parse_section_dimension(builder.field_value(SectionField::Width), "width")?,
+            depth: parse_section_dimension(builder.field_value(SectionField::Depth), "depth")?,
+            wall_thickness: parse_section_dimension(
+                builder.field_value(SectionField::WallThickness),
+                "wall thickness",
+            )?,
+        }),
+        ParametricSectionKind::HollowCircle => Ok(ParametricSection::HollowCircle {
+            outer_diameter: parse_section_dimension(
+                builder.field_value(SectionField::OuterDiameter),
+                "outer diameter",
+            )?,
+            wall_thickness: parse_section_dimension(
+                builder.field_value(SectionField::WallThickness),
+                "wall thickness",
+            )?,
+        }),
+        ParametricSectionKind::ISection => Ok(ParametricSection::ISection {
+            depth: parse_section_dimension(builder.field_value(SectionField::Depth), "depth")?,
+            flange_width: parse_section_dimension(
+                builder.field_value(SectionField::FlangeWidth),
+                "flange width",
+            )?,
+            web_thickness: parse_section_dimension(
+                builder.field_value(SectionField::WebThickness),
+                "web thickness",
+            )?,
+            flange_thickness: parse_section_dimension(
+                builder.field_value(SectionField::FlangeThickness),
+                "flange thickness",
+            )?,
+        }),
+    }
+}
+
+fn parse_section_dimension(value: &str, label: &str) -> Result<f64, String> {
+    let trimmed = value.trim();
+
+    if trimmed.is_empty() {
+        return Err(format!("Enter a value for section {label}."));
+    }
+
+    expression::evaluate(trimmed).map_err(|error| format!("Section {label}: {error}"))
 }
 
 fn support_builder_dofs(builder: SupportBuilder) -> Vec<Dof> {

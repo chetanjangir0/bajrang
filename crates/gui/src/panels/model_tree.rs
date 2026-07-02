@@ -5,14 +5,16 @@ use iced::{Alignment, Element, Fill, Length};
 use model::{
     dof::Dof,
     load::{DistributedLoadDirection, NodalLoad},
+    section::{ParametricSectionKind, Section},
 };
 
 use crate::{
     app::Message,
+    expression,
     state::{
-        CoordinateAxis, InteractionDraft, LoadBuilder, LoadTarget, MemberEndpoint, Selection,
-        StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool, dof_label, element_data,
-        element_id, element_kind,
+        CoordinateAxis, InteractionDraft, LoadBuilder, LoadTarget, MemberEndpoint, SectionBuilder,
+        SectionField, Selection, StructuralModel, SupportBuilder, SupportPreset, WorkspaceTool,
+        dof_label, element_data, element_id, element_kind, element_section,
     },
     theme,
 };
@@ -26,6 +28,7 @@ pub fn view<'a>(
     member_endpoint_edits: &'a BTreeMap<(usize, MemberEndpoint), String>,
     load_builder: Option<LoadBuilder>,
     support_builder: Option<SupportBuilder>,
+    section_builder: Option<SectionBuilder>,
 ) -> Element<'a, Message> {
     let filter = ModelTreeFilter::for_tool(tool);
     let mut tree = column![panel_title(filter.title()), summary(model, filter),]
@@ -52,6 +55,15 @@ pub fn view<'a>(
         ));
     }
 
+    if filter.show_sections {
+        tree = tree.push(sections(
+            model,
+            selection,
+            filter.edit_sections(),
+            section_builder,
+        ));
+    }
+
     if filter.show_supports {
         tree = tree.push(supports(
             model,
@@ -73,6 +85,7 @@ struct ModelTreeFilter {
     tool: WorkspaceTool,
     show_nodes: bool,
     show_members: bool,
+    show_sections: bool,
     show_supports: bool,
     show_loads: bool,
 }
@@ -84,6 +97,7 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: true,
                 show_members: true,
+                show_sections: false,
                 show_supports: true,
                 show_loads: true,
             },
@@ -91,6 +105,7 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: true,
                 show_members: false,
+                show_sections: false,
                 show_supports: false,
                 show_loads: false,
             },
@@ -98,6 +113,15 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: false,
                 show_members: true,
+                show_sections: false,
+                show_supports: false,
+                show_loads: false,
+            },
+            WorkspaceTool::AssignSection => Self {
+                tool,
+                show_nodes: false,
+                show_members: false,
+                show_sections: true,
                 show_supports: false,
                 show_loads: false,
             },
@@ -105,6 +129,7 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: false,
                 show_members: false,
+                show_sections: false,
                 show_supports: false,
                 show_loads: true,
             },
@@ -112,6 +137,7 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: false,
                 show_members: false,
+                show_sections: false,
                 show_supports: true,
                 show_loads: false,
             },
@@ -119,6 +145,7 @@ impl ModelTreeFilter {
                 tool,
                 show_nodes: true,
                 show_members: true,
+                show_sections: false,
                 show_supports: true,
                 show_loads: true,
             },
@@ -130,6 +157,7 @@ impl ModelTreeFilter {
             WorkspaceTool::Select => "Model",
             WorkspaceTool::AddNode => "Nodes",
             WorkspaceTool::DrawMember => "Members",
+            WorkspaceTool::AssignSection => "Sections",
             WorkspaceTool::AssignLoad => "Loads",
             WorkspaceTool::AssignSupport => "Supports",
             WorkspaceTool::Analyze => "Model",
@@ -148,6 +176,10 @@ impl ModelTreeFilter {
         self.tool == WorkspaceTool::AssignLoad
     }
 
+    fn edit_sections(self) -> bool {
+        self.tool == WorkspaceTool::AssignSection
+    }
+
     fn edit_supports(self) -> bool {
         self.tool == WorkspaceTool::AssignSupport
     }
@@ -161,6 +193,10 @@ fn summary(model: &StructuralModel, filter: ModelTreeFilter) -> Element<'_, Mess
     }
 
     if filter.show_members {
+        metrics = metrics.push(metric_row("Members", model.elements.len()));
+    }
+
+    if filter.show_sections {
         metrics = metrics.push(metric_row("Members", model.elements.len()));
     }
 
@@ -268,6 +304,55 @@ fn members<'a>(
                 }
             },
         )
+        .into()
+}
+
+fn sections<'a>(
+    model: &'a StructuralModel,
+    selection: Option<Selection>,
+    editable: bool,
+    section_builder: Option<SectionBuilder>,
+) -> Element<'a, Message> {
+    let mut section = section("Sections", add_message(editable, EntityKind::Section));
+
+    if editable {
+        if let Some(builder) = section_builder {
+            section = section.push(section_builder_panel(builder));
+        } else {
+            section = section.push(
+                container(
+                    text("Select a member, then use + to edit its parametric section")
+                        .size(13)
+                        .color(theme::TEXT_MUTED),
+                )
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+            );
+        }
+    }
+
+    if model.elements.is_empty() {
+        return section
+            .push(
+                container(
+                    text("No members in this model")
+                        .size(13)
+                        .color(theme::TEXT_MUTED),
+                )
+                .padding([7, 8])
+                .width(Fill)
+                .style(theme::neutral_row),
+            )
+            .into();
+    }
+
+    model
+        .elements
+        .iter()
+        .fold(section, |column, element| {
+            column.push(section_row(element, selection))
+        })
         .into()
 }
 
@@ -414,6 +499,7 @@ fn section_header(label: &str, add: Option<Message>) -> Element<'_, Message> {
 enum EntityKind {
     Node,
     Member,
+    Section,
     Load,
     Support,
 }
@@ -422,6 +508,7 @@ fn add_message(editable: bool, kind: EntityKind) -> Option<Message> {
     editable.then(|| match kind {
         EntityKind::Node => Message::AddNodeRequested,
         EntityKind::Member => Message::AddMemberRequested,
+        EntityKind::Section => Message::AddSectionRequested,
         EntityKind::Load => Message::AddLoadRequested,
         EntityKind::Support => Message::AddSupportRequested,
     })
@@ -539,6 +626,57 @@ fn editable_member_row(
             member_endpoint_edits
         ),
         delete_button(Message::DeleteMemberRequested(element_id)),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center);
+
+    container(content)
+        .padding([4, 6])
+        .width(Fill)
+        .style(theme::neutral_row)
+        .into()
+}
+
+fn section_row(
+    element: &model::elements::StructuralElement,
+    selection: Option<Selection>,
+) -> Element<'static, Message> {
+    let (id, node_i, node_j) = element_data(element);
+    let selected = selection == Some(Selection::Element(id));
+    let section = element_section(element);
+    let detail = format!(
+        "A {:.3e} m2  Iz {:.3e} m4",
+        section.area, section.moment_of_inertia_z
+    );
+
+    let content = row![
+        button(
+            text(format!("M{id}"))
+                .size(14)
+                .color(theme::TEXT)
+                .width(Fill),
+        )
+        .style(if selected {
+            theme::tool_button_active
+        } else {
+            theme::tool_button
+        })
+        .padding([4, 6])
+        .width(Length::Fixed(44.0))
+        .on_press(Message::SelectionRequested(Some(Selection::Element(id)))),
+        column![
+            text(format!(
+                "{}  N{}-N{}",
+                element_kind(element),
+                node_i,
+                node_j
+            ))
+            .size(14)
+            .color(theme::TEXT),
+            text(detail).size(12).color(theme::TEXT_MUTED),
+        ]
+        .spacing(1)
+        .width(Fill),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -717,6 +855,174 @@ fn load_builder_panel(builder: LoadBuilder) -> Element<'static, Message> {
     .width(Fill)
     .style(theme::inset)
     .into()
+}
+
+fn section_builder_panel(builder: SectionBuilder) -> Element<'static, Message> {
+    let kind_buttons = ParametricSectionKind::ALL
+        .into_iter()
+        .fold(column![].spacing(6).width(Fill), |column, kind| {
+            column.push(section_kind_button(kind, builder.kind))
+        });
+
+    let fields = section_fields(builder.kind)
+        .into_iter()
+        .fold(column![].spacing(6).width(Fill), |column, field| {
+            column.push(section_input(&builder, field))
+        });
+
+    container(
+        column![
+            row![
+                text(format!("M{} section", builder.element_id))
+                    .size(14)
+                    .color(theme::TEXT)
+                    .width(Fill),
+                button(text("Cancel").size(12).color(theme::TEXT))
+                    .padding([3, 8])
+                    .style(theme::secondary_button)
+                    .on_press(Message::CancelSectionRequested),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            text("Type").size(12).color(theme::TEXT_MUTED),
+            kind_buttons,
+            text("Dimensions in m").size(12).color(theme::TEXT_MUTED),
+            fields,
+            section_preview(&builder),
+            button(text("Apply section").size(13).color(theme::TEXT))
+                .padding([6, 10])
+                .width(Fill)
+                .style(theme::primary_button)
+                .on_press(Message::ApplySectionRequested),
+        ]
+        .spacing(7),
+    )
+    .padding(9)
+    .width(Fill)
+    .style(theme::inset)
+    .into()
+}
+
+fn section_kind_button(
+    kind: ParametricSectionKind,
+    selected: ParametricSectionKind,
+) -> Element<'static, Message> {
+    button(text(kind.label()).size(13).color(theme::TEXT))
+        .padding([6, 8])
+        .width(Fill)
+        .style(if kind == selected {
+            theme::tool_button_active
+        } else {
+            theme::secondary_button
+        })
+        .on_press(Message::SectionKindSelected(kind))
+        .into()
+}
+
+fn section_input(builder: &SectionBuilder, field: SectionField) -> Element<'static, Message> {
+    let value = builder.field_value(field).to_string();
+
+    row![
+        text(field.label())
+            .size(13)
+            .color(theme::TEXT_MUTED)
+            .width(Length::Fixed(92.0)),
+        text_input("m", &value)
+            .on_input(move |value| Message::SectionFieldChanged { field, value })
+            .padding([5, 7])
+            .size(13)
+            .width(Fill)
+            .style(theme::compact_input),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn section_fields(kind: ParametricSectionKind) -> Vec<SectionField> {
+    match kind {
+        ParametricSectionKind::Rectangle => vec![SectionField::Width, SectionField::Depth],
+        ParametricSectionKind::Circle => vec![SectionField::Diameter],
+        ParametricSectionKind::HollowRectangle => vec![
+            SectionField::Width,
+            SectionField::Depth,
+            SectionField::WallThickness,
+        ],
+        ParametricSectionKind::HollowCircle => {
+            vec![SectionField::OuterDiameter, SectionField::WallThickness]
+        }
+        ParametricSectionKind::ISection => vec![
+            SectionField::Depth,
+            SectionField::FlangeWidth,
+            SectionField::WebThickness,
+            SectionField::FlangeThickness,
+        ],
+    }
+}
+
+fn section_preview(builder: &SectionBuilder) -> Element<'static, Message> {
+    match preview_section(builder) {
+        Ok(section) => column![
+            preview_property("Area", format!("{:.4e} m2", section.area)),
+            preview_property("Iz", format!("{:.4e} m4", section.moment_of_inertia_z)),
+            preview_property("Iy", format!("{:.4e} m4", section.moment_of_inertia_y)),
+            preview_property("J", format!("{:.4e} m4", section.torsional_constant)),
+        ]
+        .spacing(6)
+        .into(),
+        Err(error) => text(error)
+            .size(13)
+            .color(theme::WARNING)
+            .width(Fill)
+            .into(),
+    }
+}
+
+fn preview_property(label: &'static str, value: String) -> Element<'static, Message> {
+    row![
+        text(label)
+            .size(13)
+            .color(theme::TEXT_MUTED)
+            .width(Length::Fixed(52.0)),
+        text(value).size(13).color(theme::TEXT).width(Fill),
+    ]
+    .spacing(8)
+    .into()
+}
+
+fn preview_section(builder: &SectionBuilder) -> Result<Section, String> {
+    let parse = |field| {
+        expression::evaluate(builder.field_value(field).trim())
+            .map_err(|_| format!("Enter numeric {}", field.label().to_lowercase()))
+    };
+
+    let parametric = match builder.kind {
+        ParametricSectionKind::Rectangle => model::section::ParametricSection::Rectangle {
+            width: parse(SectionField::Width)?,
+            depth: parse(SectionField::Depth)?,
+        },
+        ParametricSectionKind::Circle => model::section::ParametricSection::Circle {
+            diameter: parse(SectionField::Diameter)?,
+        },
+        ParametricSectionKind::HollowRectangle => {
+            model::section::ParametricSection::HollowRectangle {
+                width: parse(SectionField::Width)?,
+                depth: parse(SectionField::Depth)?,
+                wall_thickness: parse(SectionField::WallThickness)?,
+            }
+        }
+        ParametricSectionKind::HollowCircle => model::section::ParametricSection::HollowCircle {
+            outer_diameter: parse(SectionField::OuterDiameter)?,
+            wall_thickness: parse(SectionField::WallThickness)?,
+        },
+        ParametricSectionKind::ISection => model::section::ParametricSection::ISection {
+            depth: parse(SectionField::Depth)?,
+            flange_width: parse(SectionField::FlangeWidth)?,
+            web_thickness: parse(SectionField::WebThickness)?,
+            flange_thickness: parse(SectionField::FlangeThickness)?,
+        },
+    };
+
+    Section::from_parametric(parametric).map_err(|error| error.to_string())
 }
 
 fn point_dof_button(label: &'static str, dof: Dof, selected: Dof) -> Element<'static, Message> {

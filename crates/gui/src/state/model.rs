@@ -217,6 +217,23 @@ impl StructuralModel {
         Ok(())
     }
 
+    pub fn update_member_section(
+        &mut self,
+        element_id: usize,
+        section: Section,
+    ) -> Result<(), String> {
+        let Some(element) = self
+            .elements
+            .iter_mut()
+            .find(|element| element_id_of(element) == element_id)
+        else {
+            return Err(format!("Member {element_id} does not exist."));
+        };
+
+        set_element_section(element, section);
+        Ok(())
+    }
+
     pub fn add_nodal_load(
         &mut self,
         node_id: usize,
@@ -476,6 +493,28 @@ pub fn element_kind(element: &StructuralElement) -> &'static str {
         StructuralElement::Beam3D(_) => "Beam3D",
         StructuralElement::Frame2D(_) => "Frame2D",
         StructuralElement::Frame3D(_) => "Frame3D",
+    }
+}
+
+pub fn element_section(element: &StructuralElement) -> &Section {
+    match element {
+        StructuralElement::Truss2D(element) => &element.section,
+        StructuralElement::Truss3D(element) => &element.section,
+        StructuralElement::Beam2D(element) => &element.section,
+        StructuralElement::Beam3D(element) => &element.section,
+        StructuralElement::Frame2D(element) => &element.section,
+        StructuralElement::Frame3D(element) => &element.section,
+    }
+}
+
+fn set_element_section(element: &mut StructuralElement, section: Section) {
+    match element {
+        StructuralElement::Truss2D(element) => element.section = section,
+        StructuralElement::Truss3D(element) => element.section = section,
+        StructuralElement::Beam2D(element) => element.section = section,
+        StructuralElement::Beam3D(element) => element.section = section,
+        StructuralElement::Frame2D(element) => element.section = section,
+        StructuralElement::Frame3D(element) => element.section = section,
     }
 }
 

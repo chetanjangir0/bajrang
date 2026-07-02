@@ -6,7 +6,7 @@ use crate::{
     app::Message,
     state::{
         AnalysisState, Selection, StructuralModel, dof_label, element_data, element_kind,
-        member_length,
+        element_section, member_length,
     },
     theme,
 };
@@ -27,7 +27,10 @@ pub fn view<'a>(
     .into()
 }
 
-fn selection_panel(model: &StructuralModel, selection: Option<Selection>) -> Element<'_, Message> {
+fn selection_panel<'a>(
+    model: &'a StructuralModel,
+    selection: Option<Selection>,
+) -> Element<'a, Message> {
     match selection {
         Some(Selection::Node(id)) => node_panel(model, id),
         Some(Selection::Element(id)) => member_panel(model, id),
@@ -60,7 +63,7 @@ fn member_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
 
     let (_, node_i, node_j) = element_data(element);
     let length = member_length(model, node_i, node_j).unwrap_or_default();
-
+    let section = element_section(element);
     panel(
         "Member",
         column![
@@ -69,6 +72,10 @@ fn member_panel(model: &StructuralModel, id: usize) -> Element<'_, Message> {
             property("Start", format!("N{node_i}")),
             property("End", format!("N{node_j}")),
             property("Length", format!("{length:.3} m")),
+            property("Area", format!("{:.4e} m2", section.area)),
+            property("Iz", format!("{:.4e} m4", section.moment_of_inertia_z)),
+            property("Iy", format!("{:.4e} m4", section.moment_of_inertia_y)),
+            property("J", format!("{:.4e} m4", section.torsional_constant)),
             property("Loads", distributed_load_summary(model, id)),
         ],
     )
